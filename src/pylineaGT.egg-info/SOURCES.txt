@@ -1,3 +1,4 @@
+.gitignore
 LICENSE
 README.md
 setup.py
@@ -7,10 +8,13 @@ dist/pylineaGT-0.0.4-py3-none-any.whl
 dist/pylineaGT-0.0.5-py3-none-any.whl
 dist/pylineaGT-0.0.6-py3-none-any.whl
 dist/pylineaGT-0.0.7-py3-none-any.whl
+dist/pylineaGT-0.0.8-py3-none-any.whl
 src/pylineaGT/__init__.py
 src/pylineaGT/mvnmm.py
+src/pylineaGT/plot_model.py
 src/pylineaGT.egg-info/PKG-INFO
 src/pylineaGT.egg-info/SOURCES.txt
 src/pylineaGT.egg-info/dependency_links.txt
 src/pylineaGT.egg-info/requires.txt
 src/pylineaGT.egg-info/top_level.txt
+src/pylineaGT/__pycache__/mvnmm.cpython-38.pyc

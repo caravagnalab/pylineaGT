@@ -46,12 +46,8 @@ class MVNMixtureModel():
         self.init_params = {"N":self._N, "K":self.K, "T":self._T, "is_computed":False,\
             "sigma":None, "mean":None, "weights":None, \
             "clusters":None, "var_constr":None}
-        # self.hyperparameters = {"mean_scale":self.dataset.float().max(), \
-            # "mean_loc":self.dataset.float().mean(),
-            # "var_scale":100, "eta":1}
         self.hyperparameters = {"mean_scale":self.dataset.float().var(), \
-            "mean_loc":500, "var_scale":100, "eta":1}
-            # "mean_loc":self.dataset.float().mean(), "var_scale":100, "eta":1}
+            "mean_loc":self.dataset.float().mean(), "var_scale":100, "eta":1}
         self._autoguide = False
         self._enumer = "parallel"
 
@@ -376,7 +372,6 @@ class MVNMixtureModel():
         t = trange(steps, desc='Bar desc', leave=True)
         for step in t:
             self.iter = step
-            # print("BEFORE step", self._get_learned_parameters()["mean"][0:2,0:3])
             elb = self.svi.step() / self._N
             losses.append(elb)
 
