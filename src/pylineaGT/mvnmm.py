@@ -7,12 +7,13 @@ import pyro
 import pyro.distributions as distr
 import torch
 import numpy as np
+import random
+import sklearn.metrics
 
 from pyro import poutine
 from pyro.infer import SVI, TraceEnum_ELBO, autoguide, config_enumerate
 from torch.distributions import constraints
 from sklearn.cluster import KMeans
-import sklearn.metrics
 from tqdm import trange
 
 
@@ -45,10 +46,20 @@ class MVNMixtureModel():
         self.init_params = {"N":self._N, "K":self.K, "T":self._T, "is_computed":False,\
             "sigma":None, "mean":None, "weights":None, \
             "clusters":None, "var_constr":None}
-        self.hyperparameters = {"mean_scale":self.dataset.float().max(), "var_scale":100, "eta":1}
+        # self.hyperparameters = {"mean_scale":self.dataset.float().max(), \
+            # "mean_loc":self.dataset.float().mean(),
+            # "var_scale":100, "eta":1}
+        self.hyperparameters = {"mean_scale":self.dataset.float().var(), \
+            "mean_loc":500, "var_scale":100, "eta":1}
+            # "mean_loc":self.dataset.float().mean(), "var_scale":100, "eta":1}
+        self._autoguide = False
+        self._enumer = "parallel"
+
+        if len(self.dimensions) == 0:
+            self.dimensions = [str(_) for _ in range(self._T)]
 
 
-    def filter_dataset(self, min_cov=50, n=None, min_ccf=0.05, k_interval=(5,25),
+    def filter_dataset(self, min_cov=50, n=None, min_ccf=.05, k_interval=(5,25),
             metric="calinski_harabasz_score", random_state=25):
         '''
         Function to filter the input dataset.
@@ -70,8 +81,8 @@ class MVNMixtureModel():
         
         self._initialize_sigma_constraint()
 
-        self.dataset, self.IS = self._filter_dataframe_init(k_interval, metric=metric, \
-            random_state=random_state, min_ccf=min_ccf)
+        self.dataset, self.IS = self._filter_dataframe_init(min_ccf=min_ccf, k_interval=k_interval, \
+            metric=metric, random_state=random_state)
 
         if n is not None:  # takes a random sample from the dataset
             n = min(n, self.dataset.shape[0])
@@ -109,7 +120,8 @@ class MVNMixtureModel():
         self.lm["slope"], self.lm["intercept"], self.lm["x"], self.lm["y"] = slope, intercept, x, y
 
 
-    def _filter_dataframe_init(self, min_ccf=0.05, k_interval=(3,25), metric="calinski_harabasz_score", random_state=25):
+    def _filter_dataframe_init(self, min_ccf=.05, k_interval=(5,25), \
+            metric="calinski_harabasz_score", random_state=25):
         '''
         Function to filter the input dataset according to the centroid the clusters output
         from a KMeans, with `K` being the best `K` in `k_interval` according to `metric`.
@@ -161,13 +173,14 @@ class MVNMixtureModel():
         weights = pyro.sample("weights", distr.Dirichlet(torch.ones(K)))  # mixing proportions for each component sample the mixing proportion
         
         mean_scale = self.hyperparameters["mean_scale"]
+        mean_loc = self.hyperparameters["mean_loc"]
         var_scale = self.hyperparameters["var_scale"]
         eta = self.hyperparameters["eta"]
         var_constr = self.init_params["var_constr"]
 
         with pyro.plate("time_plate", self._T):
             with pyro.plate("comp_plate", K):
-                mean = pyro.sample("mean", distr.HalfNormal(mean_scale))
+                mean = pyro.sample("mean", distr.Normal(mean_loc, mean_scale))
 
         with pyro.plate("time_plate2", self._T):
             with pyro.plate("comp_plate3", K):
@@ -216,9 +229,9 @@ class MVNMixtureModel():
                     with pyro.plate("comp_plate3", K):
                         variant_constr = pyro.sample(f"var_constr", distr.Delta(params["var_constr"]))
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
-                            constraint=constraints.less_than(variant_constr))
+                            constraint=constraints.interval(0, variant_constr))
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
-
+                
                 if self.cov_type == "full":
                     with pyro.plate("comp_plate2", K):
                         sigma_chol = pyro.sample("sigma_chol", distr.Delta(sigma_chol_param).to_event(2))
@@ -230,9 +243,10 @@ class MVNMixtureModel():
                         infer={"enumerate":self._enumer})
             return guide_expl
         else:
-            return autoguide.AutoMultivariateNormal(poutine.block(self.model, \
-                expose=["weights", "mean"]), \
-                init_loc_fn=self.init_loc_fn)
+            raise NotImplementedError
+            # return autoguide.AutoMultivariateNormal(poutine.block(self.model, \
+            #     expose=["weights", "mean"]), \
+            #     init_loc_fn=self.init_loc_fn)
 
 
     def compute_Sigma(self, sigma_chol, sigma_vector, K):
@@ -298,16 +312,14 @@ class MVNMixtureModel():
         return self.init_params
 
 
-    def fit(self, steps=500, optim_fn=pyro.optim.ClippedAdam, lr=0.001, loss_fn=pyro.infer.TraceEnum_ELBO(),  \
-            enumer="parallel", autoguide=False, initializ=False, random_state=25, cov_type="diag"):
+    def fit(self, steps=500, optim_fn=pyro.optim.ClippedAdam, lr=0.001, cov_type="diag", \
+            loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=False, initializ=True, random_state=25):
         pyro.enable_validation(True)
         pyro.clear_param_store()
 
-        self._settings = {"optim":optim_fn({"lr":lr}), "loss":loss_fn}
+        self._settings = {"optim":optim_fn({"lr":lr}), "loss":loss_fn, "lr":lr}
         self._is_trained = False
-        self._autoguide = autoguide
-        self._enumer = enumer
-        self._n_iter = steps
+        self._max_iter = steps
         self.cov_type = cov_type
         self._seed = random_state
 
@@ -322,7 +334,7 @@ class MVNMixtureModel():
                         optim=self._settings["optim"], loss=self._settings["loss"])
             self.svi.loss(self.model, self._global_guide)
 
-        losses_grad = self._train(n_iter=self._n_iter)
+        losses_grad = self._train(steps=self._max_iter, convergence=convergence)
 
         self._is_trained = True
         self.losses_grad_train = losses_grad  # store the losses and the gradients for weights/lambd
@@ -340,14 +352,14 @@ class MVNMixtureModel():
         pyro.clear_param_store()
         self._global_guide = self.guide()
         self.svi = SVI(self.model, self._global_guide, optim=self._settings["optim"], \
-            loss=self._settings["loss"])
+            loss=self._settings["loss"]) 
         return self.svi.loss(self.model, self._global_guide)
 
 
-    def _train(self, n_iter):
+    def _train(self, steps, convergence):
         '''
         Function to perform the training of the model. \\
-        `n_iter` is the maximum number of steps to be performed. \\
+        `steps` is the maximum number of steps to be performed. \\
         It checks for each step `t>=100` if the estimated `mean` and `sigma`
         parameters remain constant for at least `30` consecutive iterations. \\
         It returns a dictionary with the computed losses, parameters gradients
@@ -361,31 +373,56 @@ class MVNMixtureModel():
         mean_conv, sigma_conv = [self.init_params["mean"],self.init_params["mean"]], \
             [self.init_params["sigma_vector"],self.init_params["sigma_vector"]]  #to store the lambda at the previous and current iteration
         conv = 0
-        t = trange(n_iter, desc='Bar desc', leave=True)
+        t = trange(steps, desc='Bar desc', leave=True)
         for step in t:
             self.iter = step
-            elb = self.svi.step()
+            # print("BEFORE step", self._get_learned_parameters()["mean"][0:2,0:3])
+            elb = self.svi.step() / self._N
             losses.append(elb)
 
-            params_step = self._get_learned_parameters()
+            params_step = self._get_learned_parameters() 
             nll.append(self._compute_nll(params=params_step))
 
-            if step >= 100:
+            if convergence and step >= 100:
                 mean_conv[0], mean_conv[1] = mean_conv[1], params_step["mean"]
                 sigma_conv[0], sigma_conv[1] = sigma_conv[1], params_step["sigma_vector"]
-                if self._check_convergence(mean_conv) and self._check_convergence(sigma_conv):
-                    conv += 1
-                    if conv == 30:
-                        break
-                else:
-                    conv = 0
+                conv = self._convergence(mean_conv, sigma_conv, conv)
+                if conv == 30:
+                    break
+
+            self._reset_params(params=params_step, p=.05)
 
             t.set_description("ELBO %f" % elb)
             t.refresh()
         return {"losses":losses, "gradients":dict(gradient_norms), "nll":nll}
 
 
-    def _check_convergence(self, par, perc=.5) -> Boolean:
+    def _reset_params(self, params=None, p=.1):
+        if params is None:
+            params = self._get_learned_parameters()
+
+        if random.random() < p:
+            print("RESET")
+            # compute the current assignments
+            _, assignm = self.compute_assignments(params=params)
+            clusters = self._retrieve_cluster(assignm)
+
+            means = torch.zeros_like(self.init_params["mean"])
+            for cl in clusters.unique():
+                d_k = self.dataset.index_select(dim=0, index=torch.where(clusters==cl)[0]).float()
+                means[int(cl),] = d_k.mean(dim=0)
+            
+            pyro.get_param_store()["mean_param"] = means
+        return
+
+
+    def _convergence(self, mean_conv, sigma_conv, conv):
+        if self._check_convergence(mean_conv) and self._check_convergence(sigma_conv):
+            return conv + 1
+        return 0
+
+
+    def _check_convergence(self, par) -> Boolean:
         '''
         `par` is a model parameter. The function checks if more than 95% of the elements
         changed less than `perc`% with respect to the previous step.
@@ -393,8 +430,9 @@ class MVNMixtureModel():
         n = 0
         for k in range(par[0].shape[0]):
             for t in range(par[0].shape[1]):
-                p = perc/100 * par[1][k,t]
+                p = self._settings["lr"] * par[0][k,t]
                 if torch.absolute(par[0][k,t] - par[1][k,t]) < p:
+                    # print(p, torch.absolute(par[0][k,t] - par[1][k,t]))
                     n += 1
         return n >= .95 * par[0].numel()
 
@@ -407,7 +445,8 @@ class MVNMixtureModel():
         '''
         param_store = pyro.get_param_store()
         if self._autoguide:
-            param_store = self._global_guide()
+            raise NotImplementedError
+            # param_store = self._global_guide()
         
         p = {}
         p["N"], p["K"], p["T"] = self.params["N"], self.params["K"], self.params["T"]
@@ -432,7 +471,7 @@ class MVNMixtureModel():
             flag = True
         
         params["z_probs"], params["z_assignments"] = self.compute_assignments(params=params)
-        params["clusters"] = params["z_assignments"].max(1).indices
+        params["clusters"] = self._retrieve_cluster(params["z_assignments"])
         params = self._reduce_assignments(p=perc, params=params, t=t) 
         try:
             if flag:
@@ -441,8 +480,12 @@ class MVNMixtureModel():
         finally:
             return
 
+    
+    def _retrieve_cluster(self, assignments):
+        return assignments.argmax(dim=1)
 
-    def _reduce_assignments(self, t=10, p=1, params=None, min_prob=.20):
+
+    def _reduce_assignments(self, t=10, p=.5, params=None, min_prob=.20):
         '''
         Function to adjust the final assignments.
         '''
