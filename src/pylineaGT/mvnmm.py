@@ -411,7 +411,6 @@ class MVNMixtureModel():
 
     def _convergence(self, mean_conv, sigma_conv, conv):
         if self._check_convergence(mean_conv) and self._check_convergence(sigma_conv):
-            print("CONV", conv +1)
             return conv + 1
         return 0
 
@@ -429,7 +428,6 @@ class MVNMixtureModel():
             for t in range(par[0].shape[1]):
                 p = perc * torch.max(torch.tensor(1), par[0][k,t])
                 if torch.absolute(par[0][k,t] - par[1][k,t]) <= p:
-                    # print(p, torch.absolute(par[0][k,t] - par[1][k,t]))
                     n += 1
         return n >= .95 * self.params["K"]*self.params["T"]
 
