@@ -385,51 +385,53 @@ class MVNMixtureModel():
                 if conv == 30:
                     break
 
-            self._reset_params(params=params_step, p=.05)
+            gradient_norms = self._reset_params(params=params_step, p=.05, gradient_norms=gradient_norms)
 
             t.set_description("ELBO %f" % elb)
             t.refresh()
         return {"losses":losses, "gradients":dict(gradient_norms), "nll":nll}
 
 
-    def _reset_params(self, params=None, p=.1):
+    def _reset_params(self, params=None, p=.01, gradient_norms=None):
         if params is None:
             params = self._get_learned_parameters()
-
         if random.random() < p:
-            print("RESET")
-            # compute the current assignments
-            _, assignm = self.compute_assignments(params=params)
-            clusters = self._retrieve_cluster(assignm)
-
+            clusters = self._retrieve_cluster(params=params)  # current clusters
             means = torch.zeros_like(self.init_params["mean"])
             for cl in clusters.unique():
                 d_k = self.dataset.index_select(dim=0, index=torch.where(clusters==cl)[0]).float()
-                means[int(cl),] = d_k.mean(dim=0)
-            
-            pyro.get_param_store()["mean_param"] = means
-        return
+                means[int(cl),] = d_k.mean(dim=0).clone().detach().requires_grad_()
+
+            pyro.get_param_store()["mean_param"] = means.clone().detach().requires_grad_()
+            for name, value in pyro.get_param_store().named_parameters():
+                if name == "mean_param":
+                    value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
+        return gradient_norms
 
 
     def _convergence(self, mean_conv, sigma_conv, conv):
         if self._check_convergence(mean_conv) and self._check_convergence(sigma_conv):
+            print("CONV", conv +1)
             return conv + 1
         return 0
 
 
-    def _check_convergence(self, par) -> Boolean:
+    def _check_convergence(self, par, perc=0.01) -> Boolean:
         '''
-        `par` is a model parameter. The function checks if more than 95% of the elements
-        changed less than `perc`% with respect to the previous step.
+        - `par` -> list of 2 elements given the previous (at index 0) and current (at index 1) 
+        estimated values for a parameter.
+        - `perc` -> numeric value in `[0,1]`.
+        The function returns `True` if more than 95% of the values changed less than `perc*100`% 
+        in the current step with respect to the previous one.
         '''
         n = 0
         for k in range(par[0].shape[0]):
             for t in range(par[0].shape[1]):
-                p = self._settings["lr"] * par[0][k,t]
-                if torch.absolute(par[0][k,t] - par[1][k,t]) < p:
+                p = perc * torch.max(torch.tensor(1), par[0][k,t])
+                if torch.absolute(par[0][k,t] - par[1][k,t]) <= p:
                     # print(p, torch.absolute(par[0][k,t] - par[1][k,t]))
                     n += 1
-        return n >= .95 * par[0].numel()
+        return n >= .95 * self.params["K"]*self.params["T"]
 
 
     def _get_learned_parameters(self) -> Dict:
@@ -476,7 +478,9 @@ class MVNMixtureModel():
             return
 
     
-    def _retrieve_cluster(self, assignments):
+    def _retrieve_cluster(self, assignments=None, params=None):
+        if params is not None:
+            _, assignments = self.compute_assignments(params=params)
         return assignments.argmax(dim=1)
 
 
