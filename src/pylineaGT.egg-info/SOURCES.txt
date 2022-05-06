@@ -3,6 +3,9 @@ LICENSE
 README.md
 setup.py
 dist/pylineaGT-0.0.1-py3-none-any.whl
+dist/pylineaGT-0.0.10-py3-none-any.whl
+dist/pylineaGT-0.0.11-py3-none-any.whl
+dist/pylineaGT-0.0.12-py3-none-any.whl
 dist/pylineaGT-0.0.3-py3-none-any.whl
 dist/pylineaGT-0.0.4-py3-none-any.whl
 dist/pylineaGT-0.0.5-py3-none-any.whl
@@ -19,4 +22,3 @@ src/pylineaGT.egg-info/SOURCES.txt
 src/pylineaGT.egg-info/dependency_links.txt
 src/pylineaGT.egg-info/requires.txt
 src/pylineaGT.egg-info/top_level.txt
-src/pylineaGT/__pycache__/mvnmm.cpython-38.pyc
