@@ -549,7 +549,7 @@ class MVNMixtureModel():
         ''' 
         Returns a N-dim vector, with the log-likelihood of each obs, performing 
         the log of the sum (over K) of the exp of each weighted log-prob. 
-        `log( P(x|lambda) ) = log( sum^K( exp( log(pi_k)+sum^T( log(P(x_nt|lambd_tk)) ) ) ) )`
+        `log( P(x|mu,Sigma) ) = log( sum^K( exp( log(pi_k)+log(P(x_n|mu_k,Sigma_k)) ) ) ) `
         '''
         if params is None:
             params = self.params
@@ -562,7 +562,7 @@ class MVNMixtureModel():
         Returns a matrix K x N, by adding the log-weights of each cluster to the 
         log-probs and assuming indipendence among the d-dimensions of the dataset
         (summing the log-probs).
-        `log( pi_k ) + sum^T( log( P(x_nt|lambd_tk) ) )`
+        `log( pi_k ) + log( P(x_n|mu_k,Sigma_k) ) `
         '''
         # We sum the log-likelihoods for each timepoint -> K x N matrix
         # And we sum the weight for the corresponding distribution
@@ -576,7 +576,7 @@ class MVNMixtureModel():
         '''
         Returns a matrix of dimensions K x N x T. 
         For each cluster, there is a N x T matrix with the log-probabilities 
-        for each observation `x_nt`, given the parameters `lambda_tk`.
+        for each observation `x_n`, given the parameters `mu_k` and `Sigma_k`.
         '''
         if params is None:
             params = self.params
@@ -597,7 +597,7 @@ class MVNMixtureModel():
         '''
         Returns a matrix N x K with the posterior probabilities for each obs n to be assigned
         to cluster k.
-        `P(z_nk=c|x) = (pi_c*p(x|lambd_c)) / sum^K( pi_k*p(x|lambd_k) ) \
+        `P(z_nk=c|x) = (pi_c*p(x|mu_c,Sigma_c)) / sum^K( pi_k*p(x|mu_k,Sigma_k) ) \
                      = exp(loglik_c) / exp(loglik) =  exp( loglik_c - loglik )`
 
         If specific parameters are give as input, it uses those values.

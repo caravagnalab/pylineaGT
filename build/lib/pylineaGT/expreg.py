@@ -1,32 +1,31 @@
-from collections import defaultdict
-from pyclbr import Function
-from tokenize import Double
-from typing import Dict
-from xmlrpc.client import Boolean
 import pyro
 import pyro.distributions as distr
 import torch
 import numpy as np
-import random
-import sklearn.metrics
+import re
 
-from pyro import poutine
-from pyro.infer import SVI, TraceEnum_ELBO, autoguide, config_enumerate
-from torch.distributions import constraints
-from sklearn.cluster import KMeans
-from tqdm import trange
+from pyro.infer import SVI, Trace_ELBO
+from pyro.infer.autoguide import AutoDelta
+from pyro.optim import Adam
 
 
 class ExpRegression():
-    def __init__(self, data, IS=[], columns=[], lineages=[]):
+    def __init__(self, data, mutations=[], columns=[]):
+        '''
+        - `data` -> a matrix/tensor with three columns: `time`, `y` and `labels`, where `time` 
+        contains numeric values representing the time, `y` represents the VAFs and `labels` 
+        annotates each observation to the respective cluster.
+        - `columns` -> name of the dimensions considered in the inference (columns of the dataset).
+        - `mutations` -> values of the mutations, one per row.
+        '''
+        # input dataset with columns:
+        # mutation, vaf_early/mid/late, lineage
         self._set_dataset(data)
-        self.IS = np.array(IS)
+        self.mutations = np.array(mutations)
         self.dimensions = columns # `columns` will be a list of type ["early.MNC", "mid.MNC", "early.Myeloid", "mid.Myeloid"]
-        self.lineages = lineages
 
-        self.K, self._N, self._T = K, self.dataset.shape[0], self.dataset.shape[1]
+        self._N, self._T = self.dataset.shape[0], self.dataset.shape[1]
         self._initialize_attributes()
-        self._initialize_sigma_constraint() 
 
 
     def _set_dataset(self, data):
@@ -53,3 +52,17 @@ class ExpRegression():
 
         if len(self.dimensions) == 0:
             self.dimensions = [str(_) for _ in range(self._T)]
+
+
+    def model(self):
+        raise NotImplementedError
+
+    def guide(self):
+        raise NotImplementedError
+
+    def _compute_independent_reg(self):
+        '''
+        Function to compute the independent regressions, one for each cluster, to estimate the
+        values `Y_0` and `w_0`
+        '''
+        raise NotImplementedError
