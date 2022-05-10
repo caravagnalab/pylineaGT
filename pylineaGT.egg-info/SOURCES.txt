@@ -14,9 +14,14 @@ dist/pylineaGT-0.0.6-py3-none-any.whl
 dist/pylineaGT-0.0.7-py3-none-any.whl
 dist/pylineaGT-0.0.8-py3-none-any.whl
 dist/pylineaGT-0.0.9-py3-none-any.whl
-src/pylineaGT/__init__.py
-src/pylineaGT/expreg.py
-src/pylineaGT/mvnmm.py
+pylineaGT/__init__.py
+pylineaGT/expreg.py
+pylineaGT/mvnmm.py
+pylineaGT.egg-info/PKG-INFO
+pylineaGT.egg-info/SOURCES.txt
+pylineaGT.egg-info/dependency_links.txt
+pylineaGT.egg-info/requires.txt
+pylineaGT.egg-info/top_level.txt
 src/pylineaGT.egg-info/PKG-INFO
 src/pylineaGT.egg-info/SOURCES.txt
 src/pylineaGT.egg-info/dependency_links.txt

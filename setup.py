@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 # to build and load:
 # 1. python setup.py bdist_wheel
@@ -7,13 +7,14 @@ from setuptools import setup
 
 setup(
     name = "pylineaGT",
-    version = "0.0.13",
+    version = "0.0.15",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",
     license = "GPL-3.0",
-    package_dir = {"":"src"},
-    packages = ["pylineaGT"],
+    packages=["pylineaGT"],
+    # package_dir = {"":"src"},
+    # packages = find_packages(where="src"),
     python_requires = ">=3.8",
     install_requires = [
         "pandas==1.3.3",

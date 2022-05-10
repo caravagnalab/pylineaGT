@@ -10,7 +10,6 @@ import numpy as np
 import random
 import sklearn.metrics
 
-from pyro import poutine
 from pyro.infer import SVI, TraceEnum_ELBO, autoguide, config_enumerate
 from torch.distributions import constraints
 from sklearn.cluster import KMeans
@@ -134,7 +133,7 @@ class MVNMixtureModel():
         N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn, random_state=random_state)
         km = KMeans(n_clusters=K).fit(self.dataset)
         assert km.n_iter_ < km.max_iter
-        
+
         clusters = km.labels_
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + torch.abs(torch.normal(0, 1, (K, self._T)))
         keep = torch.where((ctrs / ctrs.sum(dim=0) > min_ccf).sum(dim=1) > 0)[0]
@@ -170,13 +169,19 @@ class MVNMixtureModel():
         
         mean_scale = self.hyperparameters["mean_scale"]
         mean_loc = self.hyperparameters["mean_loc"]
+        mean_max = torch.max(self.dataset)
         var_scale = self.hyperparameters["var_scale"]
         eta = self.hyperparameters["eta"]
         var_constr = self.init_params["var_constr"]
 
         with pyro.plate("time_plate", self._T):
             with pyro.plate("comp_plate", K):
-                mean = pyro.sample("mean", distr.Normal(mean_loc, mean_scale))
+                # print(mean_max)
+                # mean = pyro.sample("mean", distr.Uniform(0, 10000))
+                # print(mean)
+                mean = pyro.sample("mean", distr.Normal(1000., 100.))
+        # print("MEAN", mean[1])
+        # print("PARAM", pyro.param("mean_param")[1])
 
         with pyro.plate("time_plate2", self._T):
             with pyro.plate("comp_plate3", K):
@@ -232,17 +237,14 @@ class MVNMixtureModel():
                     with pyro.plate("comp_plate2", K):
                         sigma_chol = pyro.sample("sigma_chol", distr.Delta(sigma_chol_param).to_event(2))
 
-                z_param = pyro.param("z_param", lambda: torch.ones(N, K) / K, \
-                    constraint=constraints.simplex) 
+                # z_param = pyro.param("z_param", lambda: torch.ones(N, K) / K, \
+                #     constraint=constraints.simplex) 
                 with pyro.plate("data_plate", N):
-                    z = pyro.sample("z", distr.Categorical(z_param), \
+                    z = pyro.sample("z", distr.Categorical(weights), \
                         infer={"enumerate":self._enumer})
             return guide_expl
         else:
             raise NotImplementedError
-            # return autoguide.AutoMultivariateNormal(poutine.block(self.model, \
-            #     expose=["weights", "mean"]), \
-            #     init_loc_fn=self.init_loc_fn)
 
 
     def compute_Sigma(self, sigma_chol, sigma_vector, K):
@@ -308,12 +310,12 @@ class MVNMixtureModel():
         return self.init_params
 
 
-    def fit(self, steps=500, optim_fn=pyro.optim.ClippedAdam, lr=0.001, cov_type="diag", \
+    def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.001, cov_type="diag", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=False, initializ=True, random_state=25):
         pyro.enable_validation(True)
         pyro.clear_param_store()
 
-        self._settings = {"optim":optim_fn({"lr":lr}), "loss":loss_fn, "lr":lr}
+        self._settings = {"optim":optim_fn({"lr":lr, "betas": (0.93, 0.999)}), "loss":loss_fn, "lr":lr}
         self._is_trained = False
         self._max_iter = steps
         self.cov_type = cov_type
@@ -363,7 +365,8 @@ class MVNMixtureModel():
         '''
         gradient_norms = defaultdict(list)
         for name, value in pyro.get_param_store().named_parameters():
-            value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
+            if name in ["weights_param", "mean_param", "sigma_vector_param"]:
+                value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
 
         losses, nll = list(), list()
         mean_conv, sigma_conv = [self.init_params["mean"],self.init_params["mean"]], \
@@ -378,15 +381,16 @@ class MVNMixtureModel():
             params_step = self._get_learned_parameters() 
             nll.append(self._compute_nll(params=params_step))
 
-            if convergence and step >= 100:
+            # gradient_norms = self._reset_params(params=params_step, p=.01, gradient_norms=gradient_norms)
+
+            if convergence and step >= 80:
                 mean_conv[0], mean_conv[1] = mean_conv[1], params_step["mean"]
                 sigma_conv[0], sigma_conv[1] = sigma_conv[1], params_step["sigma_vector"]
                 conv = self._convergence(mean_conv, sigma_conv, conv)
-                if conv == 30:
+                # conv = self._convergence_grads(gradient_norms, conv)
+                if conv == 10:
                     break
-
-            gradient_norms = self._reset_params(params=params_step, p=.05, gradient_norms=gradient_norms)
-
+            
             t.set_description("ELBO %f" % elb)
             t.refresh()
         return {"losses":losses, "gradients":dict(gradient_norms), "nll":nll}
@@ -407,6 +411,18 @@ class MVNMixtureModel():
                 if name == "mean_param":
                     value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
         return gradient_norms
+
+
+    def _convergence_grads(self, gradient_norms, conv, p=0.005):
+        for gr in gradient_norms.keys():
+            if gr in ["mean_param", "sigma_vector_param"]:
+                prev = gradient_norms[gr][-2]
+                curr = gradient_norms[gr][-1]
+                cc = np.abs(prev - curr) < curr*p
+                # print(gradient_norms[gr][-2], gradient_norms[gr][-1], np.abs(prev - curr), curr*p)
+        if cc:
+            return conv +1
+        return 0
 
 
     def _convergence(self, mean_conv, sigma_conv, conv):
