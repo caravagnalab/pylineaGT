@@ -46,7 +46,7 @@ class MVNMixtureModel():
             "sigma":None, "mean":None, "weights":None, \
             "clusters":None, "var_constr":None}
         self.hyperparameters = {"mean_scale":self.dataset.float().var(), \
-            "mean_loc":self.dataset.float().mean(), "var_scale":100, "eta":1}
+            "mean_loc":self.dataset.float().mean(), "var_scale":300, "eta":1}
         self._autoguide = False
         self._enumer = "parallel"
 
@@ -99,7 +99,6 @@ class MVNMixtureModel():
         '''
         self.lm = dict()
         slope, intercept = torch.zeros((self._T)), torch.zeros((self._T))
-        x, y = dict(), dict()
         for t in range(self._T):
             xx, yy = np.unique(self.dataset[:,t], return_counts=True)
             lm = sklearn.linear_model.LinearRegression()
@@ -107,12 +106,11 @@ class MVNMixtureModel():
             slope[t] = torch.tensor(float(fitted.coef_[0]))
             intercept[t] = torch.tensor(fitted.intercept_[0])
             
-            # check that y=0 when x >= (max_cov*1.1 + max_cov/10)
-            if (slope[t] * torch.tensor(max(xx) * 1.1) + intercept[t]) <= (max(xx)/10):
-                intercept[t] = torch.max(-1*( slope[t] * torch.tensor(max(xx)*1.1) ), \
+            # check that y=0 when x >= (max_cov*1.5 + max_cov/10)
+            if (slope[t] * torch.tensor(max(xx) * 1.5) + intercept[t]) <= (max(xx)/10):
+                intercept[t] = torch.max(-1*( slope[t] * torch.tensor(max(xx)*1.5) ), \
                     torch.tensor(max(xx) / 10))
-            x[self.dimensions[t]], y[self.dimensions[t]] = xx, yy
-        self.lm["slope"], self.lm["intercept"], self.lm["x"], self.lm["y"] = slope, intercept, x, y
+        self.lm["slope"], self.lm["intercept"] = slope, intercept
 
 
     def _filter_dataframe_init(self, min_ccf=.05, k_interval=(5,25), \
@@ -169,7 +167,7 @@ class MVNMixtureModel():
         
         mean_scale = self.hyperparameters["mean_scale"]
         mean_loc = self.hyperparameters["mean_loc"]
-        mean_max = torch.max(self.dataset)
+        max_mean = torch.max(self.dataset)
         var_scale = self.hyperparameters["var_scale"]
         eta = self.hyperparameters["eta"]
         var_constr = self.init_params["var_constr"]
@@ -177,16 +175,14 @@ class MVNMixtureModel():
         with pyro.plate("time_plate", self._T):
             with pyro.plate("comp_plate", K):
                 # print(mean_max)
-                # mean = pyro.sample("mean", distr.Uniform(0, 10000))
+                mean = pyro.sample("mean", distr.Uniform(0, max_mean))
                 # print(mean)
-                mean = pyro.sample("mean", distr.Normal(1000., 100.))
-        # print("MEAN", mean[1])
-        # print("PARAM", pyro.param("mean_param")[1])
+                # mean = pyro.sample("mean", distr.Normal(mean_loc, mean_scale))
 
         with pyro.plate("time_plate2", self._T):
             with pyro.plate("comp_plate3", K):
-                variant_constr = pyro.sample(f"var_constr", distr.Delta(var_constr))
-                sigma_vector = pyro.sample(f"sigma_vector", distr.HalfNormal(var_scale))
+                variant_constr = pyro.sample("var_constr", distr.Delta(var_constr))
+                sigma_vector = pyro.sample("sigma_vector", distr.HalfNormal(var_scale))
 
         if self.cov_type == "diag":
             sigma_chol = torch.eye(self._T) * 1.
@@ -230,6 +226,7 @@ class MVNMixtureModel():
                     with pyro.plate("comp_plate3", K):
                         variant_constr = pyro.sample(f"var_constr", distr.Delta(params["var_constr"]))
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
+                            # constraint=constraints.positive)
                             constraint=constraints.interval(0, variant_constr))
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
                 
@@ -253,6 +250,8 @@ class MVNMixtureModel():
             if self.cov_type == "diag":
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol).add(torch.eye(self._T))
+                # Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
+                #     sigma_chol).add(torch.eye(self._T))
             if self.cov_type == "full":
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol[k]).add(torch.eye(self._T))
@@ -286,10 +285,12 @@ class MVNMixtureModel():
             for cl in torch.unique(self.init_params["clusters"]):
                 var[cl,:] = torch.var(self.dataset[torch.where(self.init_params["clusters"]==cl)].float(), \
                     dim=0, unbiased=False)
+                # self.init_params["var_constr"][cl,:] = 100
                 self.init_params["var_constr"][cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
 
             var += torch.abs(torch.normal(0, 1, (K, self._T)))
             var[var > self.init_params["var_constr"]] = self.init_params["var_constr"][var > self.init_params["var_constr"]] - .1
+            # var[var > 1000] = 1000. - .1
             var[var < 1] = 1.
 
             self.init_params["mean"] = ctrs
@@ -311,7 +312,8 @@ class MVNMixtureModel():
 
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.001, cov_type="diag", \
-            loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=False, initializ=True, random_state=25):
+            loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=False, initializ=True, \
+            min_steps=1, p=0.05, random_state=25):
         pyro.enable_validation(True)
         pyro.clear_param_store()
 
@@ -332,7 +334,8 @@ class MVNMixtureModel():
                         optim=self._settings["optim"], loss=self._settings["loss"])
             self.svi.loss(self.model, self._global_guide)
 
-        losses_grad = self._train(steps=self._max_iter, convergence=convergence)
+        losses_grad = self._train(steps=self._max_iter, convergence=convergence, \
+            min_steps=min_steps, p=p)
 
         self._is_trained = True
         self.losses_grad_train = losses_grad  # store the losses and the gradients for weights/lambd
@@ -354,7 +357,7 @@ class MVNMixtureModel():
         return self.svi.loss(self.model, self._global_guide)
 
 
-    def _train(self, steps, convergence):
+    def _train(self, steps, convergence, min_steps=1, p=0.01):
         '''
         Function to perform the training of the model. \\
         `steps` is the maximum number of steps to be performed. \\
@@ -383,10 +386,10 @@ class MVNMixtureModel():
 
             # gradient_norms = self._reset_params(params=params_step, p=.01, gradient_norms=gradient_norms)
 
-            if convergence and step >= 80:
+            if convergence and step >= min_steps:
                 mean_conv[0], mean_conv[1] = mean_conv[1], params_step["mean"]
                 sigma_conv[0], sigma_conv[1] = sigma_conv[1], params_step["sigma_vector"]
-                conv = self._convergence(mean_conv, sigma_conv, conv)
+                conv = self._convergence(mean_conv, sigma_conv, conv, p=p)
                 # conv = self._convergence_grads(gradient_norms, conv)
                 if conv == 10:
                     break
@@ -425,8 +428,8 @@ class MVNMixtureModel():
         return 0
 
 
-    def _convergence(self, mean_conv, sigma_conv, conv):
-        if self._check_convergence(mean_conv) and self._check_convergence(sigma_conv):
+    def _convergence(self, mean_conv, sigma_conv, conv, p):
+        if self._check_convergence(mean_conv, p) and self._check_convergence(sigma_conv, p):
             return conv + 1
         return 0
 
@@ -445,7 +448,7 @@ class MVNMixtureModel():
                 p = perc * torch.max(torch.tensor(1), par[0][k,t])
                 if torch.absolute(par[0][k,t] - par[1][k,t]) <= p:
                     n += 1
-        return n >= .95 * self.params["K"]*self.params["T"]
+        return n >= .99 * self.params["K"]*self.params["T"]
 
 
     def _get_learned_parameters(self) -> Dict:

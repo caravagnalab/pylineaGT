@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: pylineaGT
-Version: 0.0.15
+Version: 0.0.17
 Summary: A Pyro model to perform lineage inference from Gene Therapy assays
 Author: Elena Buscaroli
 Author-email: ele.buscaroli@gmail.com

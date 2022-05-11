@@ -7,7 +7,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = "pylineaGT",
-    version = "0.0.15",
+    version = "0.0.17",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",

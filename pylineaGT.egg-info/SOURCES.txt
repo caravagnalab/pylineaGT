@@ -7,6 +7,8 @@ dist/pylineaGT-0.0.10-py3-none-any.whl
 dist/pylineaGT-0.0.11-py3-none-any.whl
 dist/pylineaGT-0.0.12-py3-none-any.whl
 dist/pylineaGT-0.0.13-py3-none-any.whl
+dist/pylineaGT-0.0.14-py3-none-any.whl
+dist/pylineaGT-0.0.15-py3-none-any.whl
 dist/pylineaGT-0.0.3-py3-none-any.whl
 dist/pylineaGT-0.0.4-py3-none-any.whl
 dist/pylineaGT-0.0.5-py3-none-any.whl
@@ -17,13 +19,11 @@ dist/pylineaGT-0.0.9-py3-none-any.whl
 pylineaGT/__init__.py
 pylineaGT/expreg.py
 pylineaGT/mvnmm.py
+pylineaGT/plot_model.py
 pylineaGT.egg-info/PKG-INFO
 pylineaGT.egg-info/SOURCES.txt
 pylineaGT.egg-info/dependency_links.txt
 pylineaGT.egg-info/requires.txt
 pylineaGT.egg-info/top_level.txt
-src/pylineaGT.egg-info/PKG-INFO
-src/pylineaGT.egg-info/SOURCES.txt
-src/pylineaGT.egg-info/dependency_links.txt
-src/pylineaGT.egg-info/requires.txt
-src/pylineaGT.egg-info/top_level.txt
+pylineaGT/__pycache__/__init__.cpython-38.pyc
+pylineaGT/__pycache__/mvnmm.cpython-38.pyc
