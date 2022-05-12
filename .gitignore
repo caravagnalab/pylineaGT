@@ -1,3 +1,4 @@
 **.ipynb
 **plot_model*
-
+*.egg-info
+**/__pycache__
