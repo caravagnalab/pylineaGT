@@ -1,10 +1,5 @@
 from setuptools import setup, find_packages
 
-# to build and load:
-# 1. python setup.py bdist_wheel
-# 2. python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/pylineaGT-X.X.X-py3-none-any.whl
-# 3. python -m twine upload dist/pylineaGT-X.X.X-py3-none-any.whl
-
 setup(
     name = "pylineaGT",
     version = "0.0.20",
@@ -23,3 +18,8 @@ setup(
         "scikit-learn==1.0.2",
     ]
 )
+
+# to build the package and publish it on Test-PyPI and PyPI:
+# 1. python setup.py bdist_wheel
+# 2. python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/pylineaGT-X.X.X-py3-none-any.whl
+# 3. python -m twine upload dist/pylineaGT-X.X.X-py3-none-any.whl
