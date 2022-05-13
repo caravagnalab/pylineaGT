@@ -1,5 +1,5 @@
 <!-- badges: start -->
-[![R-CMD-check](https://github.com/caravagnalab/pyLineaGT/workflows/python-publish/badge.svg)](https://github.com/caravagnalab/pyLineaGT/actions)
+[![PyPI package](https://github.com/caravagnalab/pyLineaGT/workflows/python-publish/badge.svg)](https://github.com/caravagnalab/pyLineaGT/actions)
 <!-- badges: end -->
 
 # pyLineaGT
