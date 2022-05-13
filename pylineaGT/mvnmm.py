@@ -250,8 +250,6 @@ class MVNMixtureModel():
             if self.cov_type == "diag":
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol).add(torch.eye(self._T))
-                # Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
-                #     sigma_chol).add(torch.eye(self._T))
             if self.cov_type == "full":
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol[k]).add(torch.eye(self._T))
