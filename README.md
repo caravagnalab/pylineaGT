@@ -1,4 +1,4 @@
-[![](https://github.com/caravagnalab/pyLineaGT/actions/workflows/python-publish.yml/badge.svg)](https://github.com/caravagnalab/pyLineaGT/actions)
+[![PyPI package build](https://github.com/caravagnalab/pyLineaGT/actions/workflows/python-publish.yml/badge.svg)](https://github.com/caravagnalab/pyLineaGT/actions)
 
 # pyLineaGT
 
