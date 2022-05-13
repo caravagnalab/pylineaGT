@@ -1,1 +1,0 @@
-from pylineaGT.mvnmm import MVNMixtureModel
