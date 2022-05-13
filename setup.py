@@ -7,14 +7,12 @@ from setuptools import setup, find_packages
 
 setup(
     name = "pylineaGT",
-    version = "0.0.19",
+    version = "0.0.20",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",
     license = "GPL-3.0",
     packages=["pylineaGT"],
-    # package_dir = {"":"src"},
-    # packages = find_packages(where="src"),
     python_requires = ">=3.8",
     install_requires = [
         "pandas==1.3.3",
