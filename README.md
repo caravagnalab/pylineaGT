@@ -1,5 +1,4 @@
-[![PyPI package](https://github.com/caravagnalab/pyLineaGT/workflows/python-publish/badge.svg)](https://github.com/caravagnalab/pyLineaGT/actions)
-![example workflow](https://github.com/caravagnalab/pyLineaGT/actions/workflows/python-publish.yml/badge.svg)
+![](https://github.com/caravagnalab/pyLineaGT/actions/workflows/python-publish.yml/badge.svg)
 
 # pyLineaGT
 
