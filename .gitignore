@@ -1,6 +1,6 @@
 **.ipynb
 **plot_model*
-**/__pycache__
+**__pycache__**
 
 .Python
 build/
@@ -19,3 +19,4 @@ wheels/
 .installed.cfg
 *.egg
 
+**env*
