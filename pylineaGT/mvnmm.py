@@ -175,9 +175,9 @@ class MVNMixtureModel():
         with pyro.plate("time_plate", self._T):
             with pyro.plate("comp_plate", K):
                 # print(mean_max)
-                mean = pyro.sample("mean", distr.Uniform(0, max_mean))
+                # mean = pyro.sample("mean", distr.Uniform(0, max_mean))
                 # print(mean)
-                # mean = pyro.sample("mean", distr.Normal(mean_loc, mean_scale))
+                mean = pyro.sample("mean", distr.Normal(mean_loc, mean_scale))
 
         with pyro.plate("time_plate2", self._T):
             with pyro.plate("comp_plate3", K):
