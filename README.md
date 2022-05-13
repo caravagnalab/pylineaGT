@@ -1,3 +1,7 @@
+<!-- badges: start -->
+[![R-CMD-check](https://github.com/caravagnalab/pyLineaGT/workflows/python-publish/badge.svg)](https://github.com/caravagnalab/pyLineaGT/actions)
+<!-- badges: end -->
+
 # pyLineaGT
 
 A set of Pyro model and functions to perform lineage inference from Gene Therapy assays, enclosed in a `Python` package. \
