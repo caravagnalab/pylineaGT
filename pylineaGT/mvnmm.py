@@ -167,16 +167,12 @@ class MVNMixtureModel():
         
         mean_scale = self.hyperparameters["mean_scale"]
         mean_loc = self.hyperparameters["mean_loc"]
-        max_mean = torch.max(self.dataset)
         var_scale = self.hyperparameters["var_scale"]
         eta = self.hyperparameters["eta"]
         var_constr = self.init_params["var_constr"]
 
         with pyro.plate("time_plate", self._T):
             with pyro.plate("comp_plate", K):
-                # print(mean_max)
-                # mean = pyro.sample("mean", distr.Uniform(0, max_mean))
-                # print(mean)
                 mean = pyro.sample("mean", distr.Normal(mean_loc, mean_scale))
 
         with pyro.plate("time_plate2", self._T):
