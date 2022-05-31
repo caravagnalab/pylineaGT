@@ -2,7 +2,8 @@ import pandas as pd
 from .mvnmm import MVNMixtureModel
 
 def Run(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
-        p=0.01, convergence=True, covariance="diag", show_progr=True, random_state=25):
+        p=0.01, convergence=True, covariance="diag", show_progr=True, 
+        store_grads=True, store_losses=True, random_state=25):
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
     losses_df = pd.DataFrame(columns=["K","run","losses"])
@@ -20,9 +21,10 @@ def Run(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
 
             kk = x_k.params["K"]
 
-            losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run)], ignore_index=True)  # list
+            if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run)], ignore_index=True)
+            if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run)], ignore_index=True)  # list
+            
             ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run)], ignore_index=True)
-            grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run)], ignore_index=True)
 
     return ic_df, losses_df, grads_df
 
