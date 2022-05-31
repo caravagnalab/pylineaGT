@@ -10,7 +10,7 @@ import numpy as np
 import random
 import sklearn.metrics
 
-from pyro.infer import SVI, TraceEnum_ELBO, autoguide, config_enumerate
+from pyro.infer import SVI
 from torch.distributions import constraints
 from sklearn.cluster import KMeans
 from tqdm import trange
@@ -393,21 +393,21 @@ class MVNMixtureModel():
         return {"losses":losses, "gradients":dict(gradient_norms), "nll":nll}
 
 
-    def _reset_params(self, params=None, p=.01, gradient_norms=None):
-        if params is None:
-            params = self._get_learned_parameters()
-        if random.random() < p:
-            clusters = self._retrieve_cluster(params=params)  # current clusters
-            means = torch.zeros_like(self.init_params["mean"])
-            for cl in clusters.unique():
-                d_k = self.dataset.index_select(dim=0, index=torch.where(clusters==cl)[0]).float()
-                means[int(cl),] = d_k.mean(dim=0).clone().detach().requires_grad_()
+    # def _reset_params(self, params=None, p=.01, gradient_norms=None):
+    #     if params is None:
+    #         params = self._get_learned_parameters()
+    #     if random.random() < p:
+    #         clusters = self._retrieve_cluster(params=params)  # current clusters
+    #         means = torch.zeros_like(self.init_params["mean"])
+    #         for cl in clusters.unique():
+    #             d_k = self.dataset.index_select(dim=0, index=torch.where(clusters==cl)[0]).float()
+    #             means[int(cl),] = d_k.mean(dim=0).clone().detach().requires_grad_()
 
-            pyro.get_param_store()["mean_param"] = means.clone().detach().requires_grad_()
-            for name, value in pyro.get_param_store().named_parameters():
-                if name == "mean_param":
-                    value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
-        return gradient_norms
+    #         pyro.get_param_store()["mean_param"] = means.clone().detach().requires_grad_()
+    #         for name, value in pyro.get_param_store().named_parameters():
+    #             if name == "mean_param":
+    #                 value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
+    #     return gradient_norms
 
 
     def _convergence_grads(self, gradient_norms, conv, p=0.005):

@@ -1,8 +1,8 @@
 **.ipynb
 **plot_model*
 **__pycache__**
+**.vscode
 
-.Python
 build/
 develop-eggs/
 dist/
