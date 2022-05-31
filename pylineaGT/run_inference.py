@@ -2,7 +2,7 @@ import pandas as pd
 from .mvnmm import MVNMixtureModel
 
 def Run(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
-        p=0.01, convergence=True, covariance="diag", random_state=25):
+        p=0.01, convergence=True, covariance="diag", show_progr=True, random_state=25):
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
     losses_df = pd.DataFrame(columns=["K","run","losses"])
@@ -16,12 +16,9 @@ def Run(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
             # - losses of the run
             # - AIC/BIC/ICL
             # - gradient norms for the parameters
-            print("Init single fit")
-            x_k = single_run(k, cov_df, lineages, run, steps, covariance, lr, p, convergence, random_state)
-            print("Finish single fit")
+            x_k = single_run(k, cov_df, lineages, run, steps, covariance, lr, p, convergence, show_progr, random_state)
 
             kk = x_k.params["K"]
-            nn = ":".join([str(kk), str(run)])
 
             losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run)], ignore_index=True)  # list
             ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run)], ignore_index=True)
@@ -31,14 +28,13 @@ def Run(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
 
 
 def single_run(k, df, lineages, run="", steps=500, covariance="diag", lr=0.001,
-    p=0.01, convergence=True, random_state=25):
-    print("RUN", run, "- K =", k)
+    p=0.01, convergence=True, show_progr=True, random_state=25):
 
     columns = df.columns[df.columns.str.startswith("cov")].to_list()
     IS = df.IS.to_list()
 
     x = MVNMixtureModel(k, data=df[columns], lineages=lineages, IS=IS, columns=columns)
-    x.fit(steps=steps, cov_type=covariance, lr=lr, p=p, convergence=convergence, random_state=random_state)
+    x.fit(steps=steps, cov_type=covariance, lr=lr, p=p, convergence=convergence, random_state=random_state, show_progr=show_progr)
     x.classifier()
 
     return x
