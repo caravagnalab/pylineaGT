@@ -1,6 +1,5 @@
-from mvnmm import MVNMixtureModel
-from run_inference import run_inference
-import pyro, torch
+from .run_inference import run_inference
+import torch
 import pyro.distributions as distr
 import pickle
 
