@@ -1,7 +1,7 @@
 import pandas as pd
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
-def Run(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
+def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
         p=0.01, convergence=True, covariance="diag", show_progr=True, 
         store_grads=True, store_losses=True, random_state=25):
 
@@ -32,10 +32,14 @@ def Run(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
 def single_run(k, df, lineages, run="", steps=500, covariance="diag", lr=0.001,
     p=0.01, convergence=True, show_progr=True, random_state=25):
 
-    columns = df.columns[df.columns.str.startswith("cov")].to_list()
-    IS = df.IS.to_list()
-
-    x = MVNMixtureModel(k, data=df[columns], lineages=lineages, IS=IS, columns=columns)
+    try:
+        columns = df.columns[df.columns.str.startswith("cov")].to_list()
+        IS = df.IS.to_list()
+        x = MVNMixtureModel(k, data=df[columns], lineages=lineages, IS=IS, columns=columns)
+    except:
+        IS = ["IS.".join(str(i)) for i in range(df.shape[0])]
+        x = MVNMixtureModel(k, data=df, lineages=lineages, IS=IS)
+    
     x.fit(steps=steps, cov_type=covariance, lr=lr, p=p, convergence=convergence, random_state=random_state, show_progr=show_progr)
     x.classifier()
 
