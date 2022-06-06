@@ -95,8 +95,8 @@ def generate_synthetic_data(N_range, T_range, K_range, mean_loc_range, mean_scal
                             sim.generate_dataset() 
                             inf = sim.run_inference_sim()
                             
-                            with open(sim.sim_id+".df", 'wb') as sim_file:
+                            with open(sim.sim_id+".df.pkl", 'wb') as sim_file:
                                 pickle.dump(sim, sim_file)
 
-                            with open(sim.sim_id+".run", 'wb') as inf_file:
+                            with open(sim.sim_id+".run.pkl", 'wb') as inf_file:
                                 pickle.dump(inf, inf_file)
