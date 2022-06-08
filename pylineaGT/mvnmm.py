@@ -369,7 +369,8 @@ class MVNMixtureModel():
         mean_conv, sigma_conv = [self.init_params["mean"],self.init_params["mean"]], \
             [self.init_params["sigma_vector"],self.init_params["sigma_vector"]]  #to store the lambda at the previous and current iteration
         conv = 0
-        if show_progr: t = trange(steps, desc='Bar desc', leave=True)
+
+        t = trange(steps, desc='Bar desc', leave=True) if show_progr else range(steps)
         for step in t:
             self.iter = step
             elb = self.svi.step() / self._N
