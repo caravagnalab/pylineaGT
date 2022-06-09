@@ -195,9 +195,9 @@ class MVNMixtureModel():
                 variant_constr = pyro.sample("var_constr", distr.Delta(var_constr))
                 sigma_vector = pyro.sample("sigma_vector", distr.HalfNormal(var_scale))
 
-        if self.cov_type == "diag":
+        if self.cov_type == "diag" or self._T == 1:
             sigma_chol = torch.eye(self._T) * 1.
-        if self.cov_type == "full":
+        if self.cov_type == "full" and self._T > 1:
             with pyro.plate("comp_plate2", K):
                 sigma_chol = pyro.sample("sigma_chol", distr.LKJCholesky(self._T, eta))
 
@@ -225,8 +225,12 @@ class MVNMixtureModel():
                     constraint=constraints.simplex)
                 mean_param = pyro.param("mean_param", lambda: params["mean"], \
                     constraint=constraints.positive)
-                sigma_chol_param = pyro.param("sigma_chol_param", lambda: params["sigma_chol"], \
-                    constraint=constraints.corr_cholesky)
+                
+                if self._T > 1:
+                    sigma_chol_param = pyro.param("sigma_chol_param", lambda: params["sigma_chol"], \
+                        constraint=constraints.corr_cholesky)
+                else:
+                    sigma_chol_param = pyro.param("sigma_chol_param", lambda: params["sigma_chol"])
                 
                 weights = pyro.sample("weights", distr.Delta(weights_param).to_event(1))
                 with pyro.plate("time_plate", self._T):
@@ -241,7 +245,7 @@ class MVNMixtureModel():
                             constraint=constraints.interval(0, variant_constr))
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
                 
-                if self.cov_type == "full":
+                if self.cov_type == "full" and self._T > 1:
                     with pyro.plate("comp_plate2", K):
                         sigma_chol = pyro.sample("sigma_chol", distr.Delta(sigma_chol_param).to_event(2))
 
@@ -305,9 +309,9 @@ class MVNMixtureModel():
             self.init_params["mean"] = ctrs
             self.init_params["sigma_vector"] = var
 
-            if self.cov_type == "diag":
+            if self.cov_type == "diag" or self._T == 1:
                 self.init_params["sigma_chol"] = torch.eye(self._T) * 1.
-            if self.cov_type == "full":
+            if self.cov_type == "full" and  self._T > 1:
                 self.init_params["sigma_chol"] = torch.zeros((K, self._T, self._T))
                 for k in range(K):
                     self.init_params["sigma_chol"][k,:,:] = distr.LKJCholesky(self._T, \
