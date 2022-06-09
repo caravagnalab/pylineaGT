@@ -39,6 +39,10 @@ class MVNMixtureModel():
                 except: pass
             except: pass
 
+            # to ensure the correct dimensionality
+            try: assert len(self.dataset.shape) > 1
+            except: self.dataset.unsqueeze_(1)
+
 
     def _initialize_attributes(self):
         self.params = {"N":self._N, "K":self.K, "T":self._T}
@@ -54,7 +58,7 @@ class MVNMixtureModel():
             self.dimensions = [str(_) for _ in range(self._T)]
 
 
-    def filter_dataset(self, min_cov=50, n=None, min_ccf=.05, k_interval=(5,25),
+    def filter_dataset(self, min_cov=0, n=None, min_ccf=.05, k_interval=(5,25),
             metric="calinski_harabasz_score", random_state=25):
         '''
         Function to filter the input dataset.
@@ -127,8 +131,10 @@ class MVNMixtureModel():
         - `metric` -> metric used to retrieve the best `K`, among `calinski_harabasz_score` and `silhouette`.
         - `random_state` -> seed value.
         '''
+
         index_fn = self._find_index_function(metric)
         N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn, random_state=random_state)
+        print(K)
         km = KMeans(n_clusters=K).fit(self.dataset)
         assert km.n_iter_ < km.max_iter
 
@@ -148,14 +154,23 @@ class MVNMixtureModel():
             return sklearn.metrics.silhouette_score
 
 
-    def _find_best_k(self, k_interval=(2,30), index_fn=sklearn.metrics.calinski_harabasz_score, random_state=25):
-        k_interval = (k_interval[0], max(k_interval[1], self.K))
-        scores = torch.zeros(k_interval[1])
+    def _find_best_k(self, k_interval=(5,30), index_fn=sklearn.metrics.calinski_harabasz_score, random_state=25):
+        k_min = max(k_interval[0], 2)
+        k_max = k_interval[1]
 
+        if k_min == k_max:
+            return k_min
+        if k_min > k_max:
+            k_max = k_min + 1
+
+        k_interval = (k_min, min(k_max, self.dataset.unique().numel()))
+
+        scores = torch.zeros(k_interval[1])
         for k in range(k_interval[0], k_interval[1]):
             km = KMeans(n_clusters=k, random_state=random_state)
-            labels = km.fit_predict(self.dataset)
-            scores[k] = index_fn(self.dataset, labels)
+            labels = km.fit_predict(self.dataset, )
+            real_k = len(np.unique(labels))
+            scores[real_k] = max(scores[real_k], index_fn(self.dataset, labels))
         best_k = scores.argmax()
         return best_k
 
