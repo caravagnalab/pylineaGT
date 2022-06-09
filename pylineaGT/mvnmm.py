@@ -7,7 +7,6 @@ import pyro
 import pyro.distributions as distr
 import torch
 import numpy as np
-import random
 import sklearn.metrics
 
 from pyro.infer import SVI
@@ -49,13 +48,30 @@ class MVNMixtureModel():
         self.init_params = {"N":self._N, "K":self.K, "T":self._T, "is_computed":False,\
             "sigma":None, "mean":None, "weights":None, \
             "clusters":None, "var_constr":None}
-        self.hyperparameters = {"mean_scale":self.dataset.float().var(), \
-            "mean_loc":self.dataset.float().mean(), "var_scale":300, "eta":1}
+        self.hyperparameters = {\
+            "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
+            "mean_loc":self.dataset.float().mean(), \
+            "var_scale":torch.tensor(300).float(), \
+            "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
 
         if len(self.dimensions) == 0:
             self.dimensions = [str(_) for _ in range(self._T)]
+
+    
+    def set_hyperparameters(self, name, value):
+        '''
+        Function to set the values of the hyperparameters. \\
+        `name` -> a string among 
+            - `mean_loc`, the center of the mean prior,
+            - `mean_loc`, the variance of the mean prior, 
+            - `var_scale`, the variance of the variance prior,
+            - `max_var`, the maximum value attributed to the variance,
+            - `min_var` the minimum value attributed to the variance.
+        `value` -> either an integer or a floatin point number.
+        '''
+        self.hyperparameters[name] = torch.tensor(value).float()
 
 
     def filter_dataset(self, min_cov=0, n=None, min_ccf=.05, k_interval=(5,25),
@@ -93,6 +109,7 @@ class MVNMixtureModel():
         self._N = self.dataset.shape[0]
         self.params["N"] = self._N
         self.init_params["N"] = self._N
+        self._initialize_attributes()
 
 
     def _initialize_sigma_constraint(self):
@@ -295,15 +312,23 @@ class MVNMixtureModel():
 
             var = torch.zeros(self.params["K"], self._T)
             self.init_params["var_constr"] = torch.zeros(self.params["K"], self._T)
+            max_var = self.hyperparameters.get("max_var", -1)
             for cl in torch.unique(self.init_params["clusters"]):
                 var[cl,:] = torch.var(self.dataset[torch.where(self.init_params["clusters"]==cl)].float(), \
                     dim=0, unbiased=False)
-                # self.init_params["var_constr"][cl,:] = 100
+                constr = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
                 self.init_params["var_constr"][cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
 
             var += torch.abs(torch.normal(0, 1, (K, self._T)))
+
+            if self.hyperparameters.get("max_var", -1) > 0:
+                self.init_params["var_constr"][self.init_params["var_constr"] > \
+                    self.hyperparameters.get("max_var")] = self.hyperparameters.get("max_var") - .1
             var[var > self.init_params["var_constr"]] = self.init_params["var_constr"][var > self.init_params["var_constr"]] - .1
-            # var[var > 1000] = 1000. - .1
+
+            if self.hyperparameters.get("min_var", -1) > 0:
+                var[var < self.hyperparameters.get("min_var")] = self.hyperparameters.get("min_var") + .1
+
             var[var < 1] = 1.
 
             self.init_params["mean"] = ctrs
@@ -488,7 +513,7 @@ class MVNMixtureModel():
         return p
 
 
-    def classifier(self, params=None, perc=.5, t=10) -> dict():
+    def classifier(self, params=None, perc=.5, t=10):
         '''
         Function to perform the classification of the observations based 
         on the computed assignment probabilities.
