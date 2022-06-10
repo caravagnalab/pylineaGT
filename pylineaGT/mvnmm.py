@@ -150,7 +150,6 @@ class MVNMixtureModel():
 
         index_fn = self._find_index_function(metric)
         N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn, random_state=random_state)
-        print(K)
         km = KMeans(n_clusters=K).fit(self.dataset)
         assert km.n_iter_ < km.max_iter
 
@@ -567,10 +566,8 @@ class MVNMixtureModel():
             params["z_probs"], params["z_assignments"] = self.compute_assignments(params)
 
         n = min(np.ceil(p/100 * params["N"]), t)
-        print(n)
         keep_low = torch.tensor(np.where( (params["z_assignments"].sum(dim=0) <= n) & \
             (params["z_assignments"].sum(dim=0) > 0) )[0])
-        print(keep_low)
 
         for cluster in keep_low:
             # count = 0
@@ -722,7 +719,6 @@ class MVNMixtureModel():
         if params is None:
             params = self.params
 
-        print(params["K"], self._n_parameters(params))
         self.nll = self._compute_nll(params=params)
         if method == "BIC":
             return self._compute_bic(params=params, nll=self.nll)

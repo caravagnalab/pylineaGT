@@ -62,7 +62,6 @@ def compute_loss(model, kk, run):
 
 
 def compute_ic(model, kk, run):
-    print(kk)
     ic_dict = {"K":[kk], "run":[run]}
     ic_dict["NLL"] = [float(model.compute_ic(method="NLL"))]
     ic_dict["BIC"] = [float(model.compute_ic(method="BIC"))]
