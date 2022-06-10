@@ -51,7 +51,7 @@ class MVNMixtureModel():
         self.hyperparameters = {\
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().mean(), \
-            "var_scale":torch.tensor(300).float(), \
+            "var_scale":torch.tensor(400).float(), \
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
@@ -94,8 +94,6 @@ class MVNMixtureModel():
         except: pass
         finally: self.dataset = self.dataset[self.dataset.sum(dim=1) >= min_cov,]
         
-        self._initialize_sigma_constraint()
-
         self.dataset, self.IS = self._filter_dataframe_init(min_ccf=min_ccf, k_interval=k_interval, \
             metric=metric, random_state=random_state)
 
@@ -110,6 +108,7 @@ class MVNMixtureModel():
         self.params["N"] = self._N
         self.init_params["N"] = self._N
         self._initialize_attributes()
+        self._initialize_sigma_constraint()
 
 
     def _initialize_sigma_constraint(self):
@@ -185,7 +184,7 @@ class MVNMixtureModel():
         scores = torch.zeros(k_interval[1])
         for k in range(k_interval[0], k_interval[1]):
             km = KMeans(n_clusters=k, random_state=random_state)
-            labels = km.fit_predict(self.dataset, )
+            labels = km.fit_predict(self.dataset)
             real_k = len(np.unique(labels))
             scores[real_k] = max(scores[real_k], index_fn(self.dataset, labels))
         best_k = scores.argmax()
@@ -259,7 +258,8 @@ class MVNMixtureModel():
                         variant_constr = pyro.sample(f"var_constr", distr.Delta(params["var_constr"]))
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
                             # constraint=constraints.positive)
-                            constraint=constraints.interval(0, variant_constr))
+                            constraint=constraints.interval(20., variant_constr))
+                        # print(sigma_vector_param)
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
                 
                 if self.cov_type == "full" and self._T > 1:
@@ -287,6 +287,62 @@ class MVNMixtureModel():
                     sigma_chol[k]).add(torch.eye(self._T))
         return Sigma
 
+    
+    def _initialize_centroids(self, K, N, random_state):
+        km = KMeans(n_clusters=K, random_state=random_state).fit(self.dataset)
+        self.init_params["clusters"] = torch.from_numpy(km.labels_)
+        
+        # self.init_params["z_assignments"] = torch.zeros(N, K)
+        # for n in range(N):
+        #     self.init_params["z_assignments"][n, self.init_params["clusters"][n]] = 1
+        
+        # init the mixing proportions
+        w = torch.tensor([(np.where(km.labels_ == k)[0].shape[0]) / N for k in range(km.n_clusters)])
+        self.init_params["weights"] = w.float().detach()
+
+        # add gaussian noise to the centroids and reset too low values
+        ctrs = torch.tensor(km.cluster_centers_).float().detach() + \
+            torch.abs(torch.normal(0, 1, (K, self._T)))
+        ctrs[ctrs <= 0] = 0.01
+        return ctrs
+
+
+    def _initialize_variance(self, K, ctrs):
+        var = torch.zeros(self.params["K"], self._T)
+        var_constr = torch.zeros(self.params["K"], self._T)
+
+        for cl in torch.unique(self.init_params["clusters"]):
+            var[cl,:] = torch.var( self.dataset[ \
+                torch.where(self.init_params["clusters"]==cl) ].float(), \
+                dim=0, unbiased=False)
+            var_constr[cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
+
+        # add gaussian noise to the variance
+        var += torch.abs(torch.normal(0, 1, (K, self._T)))
+
+        # reset variance contraints and variance values
+        max_var = self.hyperparameters.get("max_var", None)
+        if max_var is not None:
+            var_constr[var_constr > max_var] = max_var - .1
+        var[var > var_constr] = var_constr[var > var_constr] - .1
+
+        var[var < 10] = 10.
+
+        return var, var_constr
+
+    
+    def _initialize_sigma_chol(self, K):
+        if self.cov_type == "diag" or self._T == 1:
+            sigma_chol = torch.eye(self._T) * 1.
+        
+        elif self.cov_type == "full" and  self._T > 1:
+            sigma_chol = torch.zeros((K, self._T, self._T))
+            for k in range(K):
+                sigma_chol[k,:,:] = distr.LKJCholesky(\
+                    self._T, self.hyperparameters["eta"]).sample()
+
+        return sigma_chol
+
 
     def _initialize_params(self, random_state=25):
         '''
@@ -297,53 +353,17 @@ class MVNMixtureModel():
         '''
         N, K = self.params["N"], self.params["K"]
         if not self.init_params["is_computed"]:
-            km = KMeans(n_clusters=K, random_state=random_state).fit(self.dataset)
-            self.init_params["clusters"] = torch.from_numpy(km.labels_)
-            self.init_params["z_assignments"] = torch.zeros(N, K)
 
-            for n in range(N):
-                self.init_params["z_assignments"][n, self.init_params["clusters"][n]] = 1
-            
-            w = torch.tensor([(np.where(km.labels_ == k)[0].shape[0]) / N for k in range(km.n_clusters)])
-            self.init_params["weights"] = w.float().detach()
-
-            ctrs = torch.tensor(km.cluster_centers_).float().detach() + torch.abs(torch.normal(0, 1, (K, self._T)))
-            ctrs[ctrs <= 0] = 0.01
-
-            var = torch.zeros(self.params["K"], self._T)
-            self.init_params["var_constr"] = torch.zeros(self.params["K"], self._T)
-            max_var = self.hyperparameters.get("max_var", -1)
-            for cl in torch.unique(self.init_params["clusters"]):
-                var[cl,:] = torch.var(self.dataset[torch.where(self.init_params["clusters"]==cl)].float(), \
-                    dim=0, unbiased=False)
-                constr = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
-                self.init_params["var_constr"][cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
-
-            var += torch.abs(torch.normal(0, 1, (K, self._T)))
-
-            if self.hyperparameters.get("max_var", -1) > 0:
-                self.init_params["var_constr"][self.init_params["var_constr"] > \
-                    self.hyperparameters.get("max_var")] = self.hyperparameters.get("max_var") - .1
-            var[var > self.init_params["var_constr"]] = self.init_params["var_constr"][var > self.init_params["var_constr"]] - .1
-
-            if self.hyperparameters.get("min_var", -1) > 0:
-                var[var < self.hyperparameters.get("min_var")] = self.hyperparameters.get("min_var") + .1
-
-            var[var < 1] = 1.
+            ctrs = self._initialize_centroids(K, N, random_state)
+            var, var_constr = self._initialize_variance(K, ctrs)
+            sigma_chol = self._initialize_sigma_chol(K)
+            Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
 
             self.init_params["mean"] = ctrs
             self.init_params["sigma_vector"] = var
-
-            if self.cov_type == "diag" or self._T == 1:
-                self.init_params["sigma_chol"] = torch.eye(self._T) * 1.
-            if self.cov_type == "full" and  self._T > 1:
-                self.init_params["sigma_chol"] = torch.zeros((K, self._T, self._T))
-                for k in range(K):
-                    self.init_params["sigma_chol"][k,:,:] = distr.LKJCholesky(self._T, \
-                        self.hyperparameters["eta"]).sample()
-            
-            self.init_params["sigma"] = self.compute_Sigma(sigma_chol=self.init_params["sigma_chol"],\
-                sigma_vector=self.init_params["sigma_vector"], K=self.init_params["K"])
+            self.init_params["var_constr"] = var_constr
+            self.init_params["sigma_chol"] = sigma_chol
+            self.init_params["sigma"] = Sigma
             
             self.init_params["is_computed"] = True
         return self.init_params
@@ -546,18 +566,22 @@ class MVNMixtureModel():
         if params.get("z_assignments", False) is False:
             params["z_probs"], params["z_assignments"] = self.compute_assignments(params)
 
-        n = min(p/100 * params["N"], t)
+        n = min(np.ceil(p/100 * params["N"]), t)
+        print(n)
         keep_low = torch.tensor(np.where( (params["z_assignments"].sum(dim=0) <= n) & \
             (params["z_assignments"].sum(dim=0) > 0) )[0])
+        print(keep_low)
 
         for cluster in keep_low:
-            count = 0
+            # count = 0
             obs = torch.tensor(np.where(params["z_assignments"][:,cluster]==1)[0])
             for o in obs:
-                if params["z_probs"][o, cluster] >= min_prob:
-                    count += 1
-            if count < obs.shape[0]:
-                keep_low = torch.cat([keep_low[0:cluster], keep_low[cluster+1:]])
+                if params["z_probs"][o, cluster] < min_prob:
+                    keep_low = torch.cat([keep_low[0:cluster], keep_low[cluster+1:]])
+                    break
+                    # count += 1
+            # if count < obs.shape[0]:
+                # keep_low = torch.cat([keep_low[0:cluster], keep_low[cluster+1:]])
 
         keep = torch.tensor(np.where(params["z_assignments"].sum(dim=0) > n)[0])
         try:
@@ -698,6 +722,7 @@ class MVNMixtureModel():
         if params is None:
             params = self.params
 
+        print(params["K"], self._n_parameters(params))
         self.nll = self._compute_nll(params=params)
         if method == "BIC":
             return self._compute_bic(params=params, nll=self.nll)

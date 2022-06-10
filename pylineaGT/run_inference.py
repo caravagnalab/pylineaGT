@@ -1,4 +1,5 @@
 import pandas as pd
+import pyro
 from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
@@ -32,6 +33,7 @@ def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=
 def single_run(k, df, lineages, run="", steps=500, covariance="diag", lr=0.001,
     p=0.01, convergence=True, show_progr=True, random_state=25):
 
+    pyro.clear_param_store()
     try:
         columns = df.columns[df.columns.str.startswith("cov")].to_list()
         IS = df.IS.to_list()
@@ -60,6 +62,7 @@ def compute_loss(model, kk, run):
 
 
 def compute_ic(model, kk, run):
+    print(kk)
     ic_dict = {"K":[kk], "run":[run]}
     ic_dict["NLL"] = [float(model.compute_ic(method="NLL"))]
     ic_dict["BIC"] = [float(model.compute_ic(method="BIC"))]
