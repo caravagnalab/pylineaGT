@@ -170,8 +170,8 @@ class MVNMixtureModel():
 
 
     def _find_best_k(self, k_interval=(5,30), index_fn=sklearn.metrics.calinski_harabasz_score, random_state=25):
-        k_min = min(max(k_interval[0], 2), self.dataset.shape[0]-1)
-        k_max = min(k_interval[1], self.dataset.shape[0]-1)
+        k_min = min(max(k_interval[0], 2), self.dataset.unique().shape[0]-1)
+        k_max = min(k_interval[1], self.dataset.unique().shape[0]-1)
 
         print(k_min, k_max)
 
