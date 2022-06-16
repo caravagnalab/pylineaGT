@@ -170,16 +170,16 @@ class MVNMixtureModel():
 
 
     def _find_best_k(self, k_interval=(5,30), index_fn=sklearn.metrics.calinski_harabasz_score, random_state=25):
-        k_min = max(k_interval[0], 2)
-        k_max = k_interval[1]
+        k_min = min(max(k_interval[0], 2), self.dataset.unique().numel()-1)
+        k_max = min(k_interval[1], self.dataset.unique().numel()-1)
 
-        if k_min == k_max:
-            return k_min
         if k_min > k_max:
             k_max = k_min + 1
-
-        k_interval = (k_min, min(k_max, self.dataset.unique().numel()))
-
+        if k_min == k_max:
+            return k_min
+        
+        k_interval = (k_min, k_max)
+        
         scores = torch.zeros(k_interval[1])
         for k in range(k_interval[0], k_interval[1]):
             km = KMeans(n_clusters=k, random_state=random_state)
