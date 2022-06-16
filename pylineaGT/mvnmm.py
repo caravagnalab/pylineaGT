@@ -175,6 +175,10 @@ class MVNMixtureModel():
 
         print(k_min, k_max)
 
+        print(self.dataset)
+        print(self.dataset.shape)
+        print(self.dataset.unique())
+
         if k_min > k_max:
             k_max = k_min + 1
         if k_min == k_max:
