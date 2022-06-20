@@ -5,13 +5,12 @@ import pickle
 
 class Simulate():
     def __init__(self, N=200, T=5, K=15, mean_loc=50, mean_scale=1000, var_scale=100, var_constr=100, 
-        noise_loc=0, noise_scale=1, eta=1, cov_type="diag", random_state=25):
+        noise_loc=0, noise_scale=1, eta=1, cov_type="diag", random_state=25, label=""):
         self.settings = {"N":N, "T":T, "K":K, "mean_loc":mean_loc, "mean_scale":mean_scale,
             "var_scale":var_scale, "eta":eta, "var_constr":var_constr, 
             "noise_loc":float(noise_loc), "noise_scale":float(noise_scale)}
         self.cov_type = cov_type
-        self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), 
-            "m_loc"+str(mean_loc), "m_scale"+str(mean_scale), "v_scale"+str(var_scale)])
+        self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(label)])
 
     def generate_dataset(self):
         K = self.settings["K"]
@@ -76,28 +75,35 @@ class Simulate():
 
     #     return torch.ceil(x.add_(noise)).int()
 
-    def run_inference_sim(self):
-        k_interval = [max(self.settings["K"]-5, 1), self.settings["K"]+5]
-        inference = run_inference(self.dataset, lineages=[], k_interval=k_interval, n_runs=2)
-        return inference
+    # def run_inference_sim(self, sim_id, n_runs):
+    #     k_interval = [max(self.settings["K"]-5, 1), self.settings["K"]+5]
+        
+    #     for run in range(n_runs):
+    #         new_sim_id = sim_id + "." + str(run)
+    #         new_sim = run_inference(self.dataset, lineages=[], k_interval=k_interval, n_runs=n_runs)
+    #     return inference
+
+    # def run_single_inference(self, sim_id):
 
 
-def generate_synthetic_data(N_range, T_range, K_range):
-    for N in N_range:
-        for T in T_range:
-            for K in K_range:
-                # for mean_loc in mean_loc_range:
-                #     for mean_scale in mean_scale_range:
-                #         for var_scale in var_scale_range:
-                mean_loc = 50
-                mean_scale = 500
-                var_scale = 400
-                sim = Simulate(N, T, K, mean_loc, mean_scale, var_scale) 
-                sim.generate_dataset() 
-                inf = sim.run_inference_sim()
-                
-                with open(sim.sim_id+".df.pkl", 'wb') as sim_file:
-                    pickle.dump(sim, sim_file)
 
-                with open(sim.sim_id+".run.pkl", 'wb') as inf_file:
-                    pickle.dump(inf, inf_file)
+def generate_synthetic_data(N_range, T_range, K_range, n_dataset=1):
+    for n_df in range(n_dataset):
+        for N in N_range:
+            for T in T_range:
+                for K in K_range:
+                    # for mean_loc in mean_loc_range:
+                    #     for mean_scale in mean_scale_range:
+                    #         for var_scale in var_scale_range:
+                    mean_loc = 50
+                    mean_scale = 500
+                    var_scale = 400
+                    sim = Simulate(N, T, K, mean_loc, mean_scale, var_scale, label=n_df)
+                    sim.generate_dataset() 
+                    # inf = sim.run_inference_sim(n_runs=30)
+                    
+                    with open(sim.sim_id+".df.pkl", 'wb') as sim_file:
+                        pickle.dump(sim, sim_file)
+
+                    # with open(sim.sim_id+".run.pkl", 'wb') as inf_file:
+                    #     pickle.dump(inf, inf_file)
