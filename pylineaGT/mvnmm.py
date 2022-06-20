@@ -173,12 +173,6 @@ class MVNMixtureModel():
         k_min = min(max(k_interval[0], 2), self.dataset.unique().shape[0]-1)
         k_max = min(k_interval[1], self.dataset.unique().shape[0]-1)
 
-        print(k_min, k_max)
-
-        print(self.dataset)
-        print(self.dataset.shape)
-        print(self.dataset.unique())
-
         if k_min > k_max:
             k_max = k_min + 1
         if k_min == k_max:
