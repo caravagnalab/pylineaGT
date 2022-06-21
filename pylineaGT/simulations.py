@@ -2,6 +2,7 @@ from .run_inference import run_inference
 import torch
 import pyro.distributions as distr
 import pickle
+import os
 
 class Simulate():
     def __init__(self, N=200, T=5, K=15, mean_loc=50, mean_scale=1000, var_scale=100, var_constr=100, 
@@ -87,23 +88,25 @@ class Simulate():
 
 
 
-def generate_synthetic_data(N_range, T_range, K_range, n_dataset=1):
+def generate_synthetic_data(N_range, T_range, K_range, n_dataset=1, check_present=True):
+    files_list = [f for f in os.listdir('.') if os.path.isfile(f)]
+
     for n_df in range(n_dataset):
         for N in N_range:
             for T in T_range:
                 for K in K_range:
-                    # for mean_loc in mean_loc_range:
-                    #     for mean_scale in mean_scale_range:
-                    #         for var_scale in var_scale_range:
                     mean_loc = 50
                     mean_scale = 500
                     var_scale = 400
                     sim = Simulate(N, T, K, mean_loc, mean_scale, var_scale, label=n_df)
+
+                    # check if the file is already present
+                    if sim.sim_id+".df.pkl" in files_list and check_present:
+                        continue
+
                     sim.generate_dataset() 
-                    # inf = sim.run_inference_sim(n_runs=30)
                     
+                    # save the file in the current directory
                     with open(sim.sim_id+".df.pkl", 'wb') as sim_file:
                         pickle.dump(sim, sim_file)
 
-                    # with open(sim.sim_id+".run.pkl", 'wb') as inf_file:
-                    #     pickle.dump(inf, inf_file)
