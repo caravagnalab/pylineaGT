@@ -52,6 +52,7 @@ class MVNMixtureModel():
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().mean(), \
             "var_scale":torch.tensor(400).float(), \
+            "min_var":torch.tensor(20).float(), \
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
@@ -235,6 +236,7 @@ class MVNMixtureModel():
             def guide_expl():
                 params = self._initialize_params(random_state=self._seed)
                 N, K = params["N"], params["K"]
+                min_var = self.hyperparameters["min_var"]
 
                 weights_param = pyro.param("weights_param", lambda: params["weights"], \
                     constraint=constraints.simplex)
@@ -257,7 +259,7 @@ class MVNMixtureModel():
                         variant_constr = pyro.sample(f"var_constr", distr.Delta(params["var_constr"]))
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
                             # constraint=constraints.positive)
-                            constraint=constraints.interval(20., variant_constr))
+                            constraint=constraints.interval(min_var, variant_constr))
                         # print(sigma_vector_param)
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
                 
@@ -291,10 +293,6 @@ class MVNMixtureModel():
         km = KMeans(n_clusters=K, random_state=random_state).fit(self.dataset)
         self.init_params["clusters"] = torch.from_numpy(km.labels_)
         
-        # self.init_params["z_assignments"] = torch.zeros(N, K)
-        # for n in range(N):
-        #     self.init_params["z_assignments"][n, self.init_params["clusters"][n]] = 1
-        
         # init the mixing proportions
         w = torch.tensor([(np.where(km.labels_ == k)[0].shape[0]) / N for k in range(km.n_clusters)])
         self.init_params["weights"] = w.float().detach()
@@ -321,11 +319,17 @@ class MVNMixtureModel():
 
         # reset variance contraints and variance values
         max_var = self.hyperparameters.get("max_var", None)
+        min_var = self.hyperparameters.get("min_var", None)
         if max_var is not None:
+            # reset if values are larger than the maximum value set
             var_constr[var_constr > max_var] = max_var - .1
-        var[var > var_constr] = var_constr[var > var_constr] - .1
+        if min_var is not None:
+            # reset if values are lower than the minimum value set
+            var_constr[var_constr < min_var] = min_var + .1
 
-        var[var < 10] = 10.
+        # reset variance values if larger than the variance constraint
+        var[var > var_constr] = var_constr[var > var_constr] - .1
+        var[var <= 0] = 1.
 
         return var, var_constr
 
