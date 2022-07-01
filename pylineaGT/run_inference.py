@@ -2,9 +2,10 @@ import pandas as pd
 import pyro
 from .mvnmm import MVNMixtureModel
 
-def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=0.005,
-        p=0.01, convergence=True, covariance="diag", show_progr=True, 
-        store_grads=True, store_losses=True, random_state=25):
+def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
+        lr=0.005, p=0.01, convergence=True, covariance="diag", 
+        hyperparameters=dict(), show_progr=True, store_grads=True,
+        store_losses=True, random_state=25):
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
     losses_df = pd.DataFrame(columns=["K","run","losses"])
@@ -18,7 +19,10 @@ def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=
             # - losses of the run
             # - AIC/BIC/ICL
             # - gradient norms for the parameters
-            x_k = single_run(k, cov_df, lineages, run, steps, covariance, lr, p, convergence, show_progr, random_state)
+            x_k = single_run(k=k, df=cov_df, lineages=lineages, run=run, 
+                steps=steps, covariance=covariance, lr=lr, p=p, 
+                hyperparameters=hyperparameters, convergence=convergence, 
+                show_progr=show_progr, random_state=random_state)
 
             kk = x_k.params["K"]
 
@@ -31,7 +35,7 @@ def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500, lr=
 
 
 def single_run(k, df, lineages, run="", steps=500, covariance="diag", lr=0.001,
-    p=0.01, convergence=True, show_progr=True, random_state=25):
+    p=0.01, convergence=True, show_progr=True, random_state=25, hyperparameters=dict()):
 
     pyro.clear_param_store()
     try:
@@ -41,6 +45,9 @@ def single_run(k, df, lineages, run="", steps=500, covariance="diag", lr=0.001,
     except:
         IS = ["IS.".join(str(i)) for i in range(df.shape[0])]
         x = MVNMixtureModel(k, data=df, lineages=lineages, IS=IS)
+
+    for name, value in hyperparameters.items():
+        x.set_hyperparameters(name, value)
     
     x.fit(steps=steps, cov_type=covariance, lr=lr, p=p, convergence=convergence, random_state=random_state, show_progr=show_progr)
     x.classifier()

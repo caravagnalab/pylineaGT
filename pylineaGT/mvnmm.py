@@ -50,8 +50,11 @@ class MVNMixtureModel():
             "clusters":None, "var_constr":None}
         self.hyperparameters = {\
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
-            "mean_loc":self.dataset.float().mean(), \
-            "var_scale":torch.tensor(400).float(), \
+            "mean_loc":self.dataset.float().max() / 2, \
+            # mean and sd for the Normal prior of the variance
+            "var_loc":torch.tensor(55).float(), \
+            "var_scale":torch.tensor(30).float(), \
+            # "var_scale":torch.tensor(400).float(), \
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
@@ -66,6 +69,7 @@ class MVNMixtureModel():
         `name` -> a string among 
             - `mean_loc`, the center of the mean prior,
             - `mean_loc`, the variance of the mean prior, 
+            - `var_loc`, the  center of the variance prior,
             - `var_scale`, the variance of the variance prior,
             - `max_var`, the maximum value attributed to the variance,
             - `min_var` the minimum value attributed to the variance.
@@ -90,12 +94,14 @@ class MVNMixtureModel():
         - `metric` -> metric used to retrieve the best `K`, among `calinski_harabasz_score` and `silhouette`.
         - `random_state` -> seed value.
         '''
-        try: self.IS = self.IS[self.dataset.sum(dim=1) >= min_cov]
+
+        idxs = torch.any(self.dataset >= min_cov, dim=1)
+        try: self.IS = self.IS[idxs]
         except: pass
-        finally: self.dataset = self.dataset[self.dataset.sum(dim=1) >= min_cov,]
+        finally: self.dataset = self.dataset[idxs,]
         
-        self.dataset, self.IS = self._filter_dataframe_init(min_ccf=min_ccf, k_interval=k_interval, \
-            metric=metric, random_state=random_state)
+        self.dataset, self.IS = self._filter_dataframe_init(min_ccf=min_ccf,
+            k_interval=k_interval, metric=metric, random_state=random_state)
 
         if n is not None:  # takes a random sample from the dataset
             n = min(n, self.dataset.shape[0])
@@ -197,6 +203,7 @@ class MVNMixtureModel():
         
         mean_scale = self.hyperparameters["mean_scale"]
         mean_loc = self.hyperparameters["mean_loc"]
+        var_loc = self.hyperparameters["var_loc"]
         var_scale = self.hyperparameters["var_scale"]
         eta = self.hyperparameters["eta"]
         var_constr = self.init_params["var_constr"]
@@ -208,7 +215,10 @@ class MVNMixtureModel():
         with pyro.plate("time_plate2", self._T):
             with pyro.plate("comp_plate3", K):
                 variant_constr = pyro.sample("var_constr", distr.Delta(var_constr))
-                sigma_vector = pyro.sample("sigma_vector", distr.HalfNormal(var_scale))
+                
+                # sampling sigma, the sd
+                sigma_vector = pyro.sample("sigma_vector", distr.Normal(var_loc, var_scale))
+                # sigma_vector = pyro.sample("sigma_vector", distr.HalfNormal(var_scale))
 
         if self.cov_type == "diag" or self._T == 1:
             sigma_chol = torch.eye(self._T) * 1.
@@ -256,17 +266,13 @@ class MVNMixtureModel():
                     with pyro.plate("comp_plate3", K):
                         variant_constr = pyro.sample(f"var_constr", distr.Delta(params["var_constr"]))
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
-                            # constraint=constraints.positive)
                             constraint=constraints.interval(20., variant_constr))
-                        # print(sigma_vector_param)
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
                 
                 if self.cov_type == "full" and self._T > 1:
                     with pyro.plate("comp_plate2", K):
                         sigma_chol = pyro.sample("sigma_chol", distr.Delta(sigma_chol_param).to_event(2))
 
-                # z_param = pyro.param("z_param", lambda: torch.ones(N, K) / K, \
-                #     constraint=constraints.simplex) 
                 with pyro.plate("data_plate", N):
                     z = pyro.sample("z", distr.Categorical(weights), \
                         infer={"enumerate":self._enumer})
@@ -279,10 +285,12 @@ class MVNMixtureModel():
         Sigma = torch.zeros((K, self._T, self._T))
         for k in range(K):
             if self.cov_type == "diag":
-                Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
+                Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
+                # Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol).add(torch.eye(self._T))
             if self.cov_type == "full":
-                Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
+                Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
+                # Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol[k]).add(torch.eye(self._T))
         return Sigma
 
@@ -290,10 +298,6 @@ class MVNMixtureModel():
     def _initialize_centroids(self, K, N, random_state):
         km = KMeans(n_clusters=K, random_state=random_state).fit(self.dataset)
         self.init_params["clusters"] = torch.from_numpy(km.labels_)
-        
-        # self.init_params["z_assignments"] = torch.zeros(N, K)
-        # for n in range(N):
-        #     self.init_params["z_assignments"][n, self.init_params["clusters"][n]] = 1
         
         # init the mixing proportions
         w = torch.tensor([(np.where(km.labels_ == k)[0].shape[0]) / N for k in range(km.n_clusters)])
