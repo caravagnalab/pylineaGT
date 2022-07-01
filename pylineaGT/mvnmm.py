@@ -50,11 +50,17 @@ class MVNMixtureModel():
             "clusters":None, "var_constr":None}
         self.hyperparameters = {\
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
+<<<<<<< HEAD
             "mean_loc":self.dataset.float().max() / 2, \
             # mean and sd for the Normal prior of the variance
             "var_loc":torch.tensor(55).float(), \
             "var_scale":torch.tensor(30).float(), \
             # "var_scale":torch.tensor(400).float(), \
+=======
+            "mean_loc":self.dataset.float().mean(), \
+            "var_scale":torch.tensor(400).float(), \
+            "min_var":torch.tensor(20).float(), \
+>>>>>>> 9bfd6271c2510861cf2023e735c8ef0dac5c29b9
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
@@ -245,6 +251,7 @@ class MVNMixtureModel():
             def guide_expl():
                 params = self._initialize_params(random_state=self._seed)
                 N, K = params["N"], params["K"]
+                min_var = self.hyperparameters["min_var"]
 
                 weights_param = pyro.param("weights_param", lambda: params["weights"], \
                     constraint=constraints.simplex)
@@ -266,7 +273,13 @@ class MVNMixtureModel():
                     with pyro.plate("comp_plate3", K):
                         variant_constr = pyro.sample(f"var_constr", distr.Delta(params["var_constr"]))
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
+<<<<<<< HEAD
                             constraint=constraints.interval(20., variant_constr))
+=======
+                            # constraint=constraints.positive)
+                            constraint=constraints.interval(min_var, variant_constr))
+                        # print(sigma_vector_param)
+>>>>>>> 9bfd6271c2510861cf2023e735c8ef0dac5c29b9
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
                 
                 if self.cov_type == "full" and self._T > 1:
@@ -325,11 +338,17 @@ class MVNMixtureModel():
 
         # reset variance contraints and variance values
         max_var = self.hyperparameters.get("max_var", None)
+        min_var = self.hyperparameters.get("min_var", None)
         if max_var is not None:
+            # reset if values are larger than the maximum value set
             var_constr[var_constr > max_var] = max_var - .1
-        var[var > var_constr] = var_constr[var > var_constr] - .1
+        if min_var is not None:
+            # reset if values are lower than the minimum value set
+            var_constr[var_constr < min_var] = min_var + .1
 
-        var[var < 10] = 10.
+        # reset variance values if larger than the variance constraint
+        var[var > var_constr] = var_constr[var > var_constr] - .1
+        var[var <= 0] = 1.
 
         return var, var_constr
 

@@ -8,7 +8,7 @@ setup(
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",
     license = "GPL-3.0",
     packages=["pylineaGT"],
-    python_requires = ">=3.8",
+    python_requires = ">=3.6",
     install_requires = [
         "pandas==1.3.3",
         "pyro-api==0.1.2",
