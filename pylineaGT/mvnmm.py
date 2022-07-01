@@ -50,17 +50,12 @@ class MVNMixtureModel():
             "clusters":None, "var_constr":None}
         self.hyperparameters = {\
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
-<<<<<<< HEAD
             "mean_loc":self.dataset.float().max() / 2, \
             # mean and sd for the Normal prior of the variance
             "var_loc":torch.tensor(55).float(), \
             "var_scale":torch.tensor(30).float(), \
             # "var_scale":torch.tensor(400).float(), \
-=======
-            "mean_loc":self.dataset.float().mean(), \
-            "var_scale":torch.tensor(400).float(), \
-            "min_var":torch.tensor(20).float(), \
->>>>>>> 9bfd6271c2510861cf2023e735c8ef0dac5c29b9
+            "min_var":torch.tensor(20).float(),
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
@@ -273,13 +268,7 @@ class MVNMixtureModel():
                     with pyro.plate("comp_plate3", K):
                         variant_constr = pyro.sample(f"var_constr", distr.Delta(params["var_constr"]))
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
-<<<<<<< HEAD
-                            constraint=constraints.interval(20., variant_constr))
-=======
-                            # constraint=constraints.positive)
                             constraint=constraints.interval(min_var, variant_constr))
-                        # print(sigma_vector_param)
->>>>>>> 9bfd6271c2510861cf2023e735c8ef0dac5c29b9
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
                 
                 if self.cov_type == "full" and self._T > 1:
