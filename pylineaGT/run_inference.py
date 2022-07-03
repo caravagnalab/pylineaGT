@@ -4,14 +4,20 @@ from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
         lr=0.005, p=0.01, convergence=True, covariance="diag", 
-        hyperparameters=dict(), show_progr=True, store_grads=True,
-        store_losses=True, random_state=25):
+        hyperparameters=dict(), show_progr=True, 
+        store_grads=True, store_losses=True, store_params=True,\
+        random_state=25):
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
+    
     losses_df = pd.DataFrame(columns=["K","run","losses"])
     losses_df.losses = losses_df.losses.astype("object")
+    
     grads_df = pd.DataFrame(columns=["K","run","param","grad_norm"])
     grads_df.grad_norm = grads_df.grad_norm.astype("object")
+    
+    params_df = pd.DataFrame(columns=["K","run","param","params_values"])
+    params_df.params_values = params_df.params_values.astype("object")
 
     for k in range(k_interval[0], k_interval[1]+1):
         for run in range(1, n_runs+1):
@@ -28,6 +34,7 @@ def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
 
             if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run)], ignore_index=True)
             if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run)], ignore_index=True)  # list
+            if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run)], ignore_index=True)  # list
             
             ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run)], ignore_index=True)
 
@@ -66,6 +73,16 @@ def compute_grads(model, kk, run):
 
 def compute_loss(model, kk, run):
     return pd.DataFrame({"K":kk, "run":run, "losses":[model.losses_grad_train["losses"]]})
+
+
+def retrieve_params(model, kk, run):
+    return pd.DataFrame({"K":kk, 
+        "run":run, 
+        "param":["mean","sigma_vector","weights","sigma_chol"],
+        "params_values":[model.losses_grad_train["params"]["mean"],
+                         model.losses_grad_train["params"]["sigma_vector"],
+                         model.losses_grad_train["params"]["weights"],
+                         model.losses_grad_train["params"]["sigma_chol"]]})
 
 
 def compute_ic(model, kk, run):

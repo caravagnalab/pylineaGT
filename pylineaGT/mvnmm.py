@@ -381,7 +381,7 @@ class MVNMixtureModel():
 
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.001, cov_type="diag", \
-            loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=False, initializ=True, \
+            loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
             min_steps=1, p=0.05, random_state=25, store_params=False, show_progr=True):
         pyro.enable_validation(True)
         pyro.clear_param_store()
@@ -458,8 +458,9 @@ class MVNMixtureModel():
 
             if store_params:
                 for k,v in params_step.items():
-                    params[k] = params.get(k, dict())
-                    params[k][step] = v.detach().numpy()
+                    if k in ["weights", "mean", "sigma_vector", "sigma_chol"]:
+                        params[k] = params.get(k, dict())
+                        params[k][step] = v.detach().numpy().tolist()
 
             # gradient_norms = self._reset_params(params=params_step, p=.01, gradient_norms=gradient_norms)
             if convergence and step >= min_steps:
@@ -476,8 +477,11 @@ class MVNMixtureModel():
             if show_progr:
                 t.set_description("ELBO %f" % elb)
                 t.refresh()
-            
-        return {"losses":losses, "gradients":dict(gradient_norms), "params":params}
+        
+        t.close()
+        return {"losses":losses, 
+            "gradients":dict(gradient_norms), 
+            "params":params}
 
 
     # def _reset_params(self, params=None, p=.01, gradient_norms=None):
