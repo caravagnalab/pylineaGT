@@ -382,7 +382,7 @@ class MVNMixtureModel():
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.001, cov_type="diag", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=False, initializ=True, \
-            min_steps=1, p=0.05, random_state=25, show_progr=True):
+            min_steps=1, p=0.05, random_state=25, store_params=False, show_progr=True):
         pyro.enable_validation(True)
         pyro.clear_param_store()
 
@@ -403,8 +403,9 @@ class MVNMixtureModel():
                         optim=self._settings["optim"], loss=self._settings["loss"])
             self.svi.loss(self.model, self._global_guide)
 
-        losses_grad = self._train(steps=self._max_iter, convergence=convergence, \
-            min_steps=min_steps, p=p, show_progr=show_progr)
+        losses_grad = self._train(steps=self._max_iter, \
+            convergence=convergence, min_steps=min_steps, \
+            store_params=store_params, p=p, show_progr=show_progr)
 
         self._is_trained = True
         self.losses_grad_train = losses_grad  # store the losses and the gradients for weights/lambd
@@ -426,7 +427,8 @@ class MVNMixtureModel():
         return self.svi.loss(self.model, self._global_guide)
 
 
-    def _train(self, steps, convergence, min_steps=1, p=0.01, show_progr=True):
+    def _train(self, steps, convergence, min_steps=1, p=0.01, \
+        show_progr=True, store_params=False):
         '''
         Function to perform the training of the model. \\
         `steps` is the maximum number of steps to be performed. \\
@@ -441,6 +443,7 @@ class MVNMixtureModel():
                 value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
 
         losses = list()
+        params = dict()
         mean_conv, sigma_conv = [self.init_params["mean"],self.init_params["mean"]], \
             [self.init_params["sigma_vector"],self.init_params["sigma_vector"]]  #to store the lambda at the previous and current iteration
         conv = 0
@@ -453,6 +456,11 @@ class MVNMixtureModel():
 
             params_step = self._get_learned_parameters() 
 
+            if store_params:
+                for k,v in params_step.items():
+                    params[k] = params.get(k, dict())
+                    params[k][step] = v.detach().numpy()
+
             # gradient_norms = self._reset_params(params=params_step, p=.01, gradient_norms=gradient_norms)
             if convergence and step >= min_steps:
                 mean_conv[0], mean_conv[1] = mean_conv[1], params_step["mean"]
@@ -460,12 +468,16 @@ class MVNMixtureModel():
                 conv = self._convergence(mean_conv, sigma_conv, conv, p=p)
                 # conv = self._convergence_grads(gradient_norms, conv)
                 if conv == 10:
+                    if show_progr:
+                        t.set_description("ELBO %f" % elb)
+                        t.reset(total=step)
                     break
             
             if show_progr:
                 t.set_description("ELBO %f" % elb)
                 t.refresh()
-        return {"losses":losses, "gradients":dict(gradient_norms)}
+            
+        return {"losses":losses, "gradients":dict(gradient_norms), "params":params}
 
 
     # def _reset_params(self, params=None, p=.01, gradient_norms=None):
