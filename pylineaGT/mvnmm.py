@@ -478,7 +478,6 @@ class MVNMixtureModel():
                 t.set_description("ELBO %f" % elb)
                 t.refresh()
         
-        t.close()
         return {"losses":losses, 
             "gradients":dict(gradient_norms), 
             "params":params}
