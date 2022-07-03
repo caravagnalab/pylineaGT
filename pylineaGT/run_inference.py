@@ -1,6 +1,6 @@
 import pandas as pd
 import pyro
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
         lr=0.005, p=0.01, convergence=True, covariance="diag", 
@@ -38,7 +38,7 @@ def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
             
             ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run)], ignore_index=True)
 
-    return ic_df, losses_df, grads_df
+    return ic_df, losses_df, grads_df, params_df
 
 
 def single_run(k, df, lineages, run="", steps=500, covariance="diag", lr=0.001,
