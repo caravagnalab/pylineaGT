@@ -1,3 +1,3 @@
-from pylineaGT.mvnmm import MVNMixtureModel
-from pylineaGT.run import run_inference
-from pylineaGT.simulations import Simulate, generate_synthetic_data
+from .mvnmm import MVNMixtureModel
+from .run import run_inference
+from .simulations import Simulate, generate_synthetic_data

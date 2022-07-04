@@ -1,6 +1,6 @@
 import pandas as pd
 import pyro
-from mvnmm import MVNMixtureModel
+from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
         n_runs=2, steps=500, lr=0.005, p=0.01, convergence=True,
