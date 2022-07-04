@@ -1,4 +1,4 @@
-from .run_inference import run_inference
+from run import run_inference
 import torch
 import pyro.distributions as distr
 import pickle

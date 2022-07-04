@@ -1,10 +1,10 @@
 import pandas as pd
 import pyro
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
-def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
-        lr=0.005, p=0.01, convergence=True, covariance="diag", 
-        hyperparameters=dict(), show_progr=True, 
+def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
+        n_runs=2, steps=500, lr=0.005, p=0.01, convergence=True,
+        covariance="diag", hyperparameters=dict(), show_progr=True, 
         store_grads=True, store_losses=True, store_params=True,\
         random_state=25):
 
@@ -25,8 +25,8 @@ def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
             # - losses of the run
             # - AIC/BIC/ICL
             # - gradient norms for the parameters
-            x_k = single_run(k=k, df=cov_df, lineages=lineages, run=run, 
-                steps=steps, covariance=covariance, lr=lr, p=p, 
+            x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
+                run=run, steps=steps, covariance=covariance, lr=lr, p=p, 
                 hyperparameters=hyperparameters, convergence=convergence, 
                 show_progr=show_progr, store_params=store_params, random_state=random_state)
 
@@ -41,7 +41,7 @@ def run_inference(cov_df, lineages, k_interval=[10,30], n_runs=2, steps=500,
     return ic_df, losses_df, grads_df, params_df
 
 
-def single_run(k, df, lineages, run="", steps=500, covariance="diag", lr=0.001,
+def single_run(k, df, IS=[], columns=[], lineages=[], run="", steps=500, covariance="diag", lr=0.001,
     p=0.01, convergence=True, show_progr=True, random_state=25, 
     hyperparameters=dict(), store_params=False):
 

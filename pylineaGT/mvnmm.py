@@ -45,16 +45,15 @@ class MVNMixtureModel():
 
     def _initialize_attributes(self):
         self.params = {"N":self._N, "K":self.K, "T":self._T}
-        self.init_params = {"N":self._N, "K":self.K, "T":self._T, "is_computed":False,\
+        self.init_params = {"N":self._N, "K":self.K, "T":self._T, \
             "sigma":None, "mean":None, "weights":None, \
             "clusters":None, "var_constr":None}
-        self.hyperparameters = {\
+        self.hyperparameters = { \
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().max() / 2, \
             # mean and sd for the Normal prior of the variance
             "var_loc":torch.tensor(55).float(), \
             "var_scale":torch.tensor(30).float(), \
-            # "var_scale":torch.tensor(400).float(), \
             "min_var":torch.tensor(20).float(),
             "eta":torch.tensor(1).float()}
         self._autoguide = False
@@ -63,7 +62,12 @@ class MVNMixtureModel():
         if len(self.dimensions) == 0:
             self.dimensions = [str(_) for _ in range(self._T)]
 
-    
+
+    def print_hyperparameters(self):
+        for k, v in self.hyperparameters.items():
+            print(f"{k} = {v}")
+
+
     def set_hyperparameters(self, name, value):
         '''
         Function to set the values of the hyperparameters. \\
@@ -216,10 +220,7 @@ class MVNMixtureModel():
         with pyro.plate("time_plate2", self._T):
             with pyro.plate("comp_plate3", K):
                 variant_constr = pyro.sample("var_constr", distr.Delta(var_constr))
-                
-                # sampling sigma, the sd
-                sigma_vector = pyro.sample("sigma_vector", distr.Normal(var_loc, var_scale))
-                # sigma_vector = pyro.sample("sigma_vector", distr.HalfNormal(var_scale))
+                sigma_vector = pyro.sample("sigma_vector", distr.Normal(var_loc, var_scale))  # sampling sigma, the sd
 
         if self.cov_type == "diag" or self._T == 1:
             sigma_chol = torch.eye(self._T) * 1.
@@ -252,13 +253,21 @@ class MVNMixtureModel():
                     constraint=constraints.simplex)
                 mean_param = pyro.param("mean_param", lambda: params["mean"], \
                     constraint=constraints.positive)
+
+                if self.cov_type=="full" and self._T > 1:
+                    with pyro.plate("comp_plate2", K):
+                        sigma_chol_param = pyro.param("sigma_chol_param", lambda: params["sigma_chol"], \
+                            constraint=constraints.corr_cholesky)
+                        # sigma_chol_param has shape [10,12,12]
+                        # to_event(2) takes the two rightmost dimensions ([12,12]) and the last 
+                        # dimension [10] is now i.i.d. 
+                        # -> so we have 10 elements of shape [12,12] sampled independently
+                        sigma_chol = pyro.sample("sigma_chol", distr.Delta(sigma_chol_param).to_event(2))
                 
-                if self._T > 1:
-                    sigma_chol_param = pyro.param("sigma_chol_param", lambda: params["sigma_chol"], \
-                        constraint=constraints.corr_cholesky)
-                else:
+                elif self.cov_type=="diag" or self._T == 1:
                     sigma_chol_param = pyro.param("sigma_chol_param", lambda: params["sigma_chol"])
                 
+                # to_event(1) makes the elements sampled independently
                 weights = pyro.sample("weights", distr.Delta(weights_param).to_event(1))
                 with pyro.plate("time_plate", self._T):
                     with pyro.plate("comp_plate", K):
@@ -270,10 +279,6 @@ class MVNMixtureModel():
                         sigma_vector_param = pyro.param(f"sigma_vector_param", lambda: params["sigma_vector"], 
                             constraint=constraints.interval(min_var, variant_constr))
                         sigma_vector = pyro.sample(f"sigma_vector", distr.Delta(sigma_vector_param))
-                
-                if self.cov_type == "full" and self._T > 1:
-                    with pyro.plate("comp_plate2", K):
-                        sigma_chol = pyro.sample("sigma_chol", distr.Delta(sigma_chol_param).to_event(2))
 
                 with pyro.plate("data_plate", N):
                     z = pyro.sample("z", distr.Categorical(weights), \
@@ -284,15 +289,16 @@ class MVNMixtureModel():
 
 
     def compute_Sigma(self, sigma_chol, sigma_vector, K):
+        '''
+        Function to compute the sigma_tril used in the Normal likelihood
+        '''
         Sigma = torch.zeros((K, self._T, self._T))
         for k in range(K):
             if self.cov_type == "diag":
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
-                # Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol).add(torch.eye(self._T))
             if self.cov_type == "full":
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
-                # Sigma[k,:,:] = torch.mm(sigma_vector[k,:].sqrt().diag_embed(), \
                     sigma_chol[k]).add(torch.eye(self._T))
         return Sigma
 
@@ -349,7 +355,7 @@ class MVNMixtureModel():
         elif self.cov_type == "full" and  self._T > 1:
             sigma_chol = torch.zeros((K, self._T, self._T))
             for k in range(K):
-                sigma_chol[k,:,:] = distr.LKJCholesky(\
+                sigma_chol[k,:] = distr.LKJCholesky(\
                     self._T, self.hyperparameters["eta"]).sample()
 
         return sigma_chol
@@ -363,20 +369,18 @@ class MVNMixtureModel():
         Poisson lambda or Gaussian mean as the centers of each cluster.
         '''
         N, K = self.params["N"], self.params["K"]
-        if not self.init_params["is_computed"]:
 
-            ctrs = self._initialize_centroids(K, N, random_state)
-            var, var_constr = self._initialize_variance(K, ctrs)
-            sigma_chol = self._initialize_sigma_chol(K)
-            Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
+        ctrs = self._initialize_centroids(K, N, random_state)
+        var, var_constr = self._initialize_variance(K, ctrs)
+        sigma_chol = self._initialize_sigma_chol(K)
+        Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
 
-            self.init_params["mean"] = ctrs
-            self.init_params["sigma_vector"] = var
-            self.init_params["var_constr"] = var_constr
-            self.init_params["sigma_chol"] = sigma_chol
-            self.init_params["sigma"] = Sigma
-            
-            self.init_params["is_computed"] = True
+        self.init_params["mean"] = ctrs
+        self.init_params["sigma_vector"] = var
+        self.init_params["var_constr"] = var_constr
+        self.init_params["sigma_chol"] = sigma_chol
+        self.init_params["sigma"] = Sigma
+        
         return self.init_params
 
 
@@ -460,7 +464,7 @@ class MVNMixtureModel():
                 for k,v in params_step.items():
                     if k in ["weights", "mean", "sigma_vector", "sigma_chol"]:
                         params[k] = params.get(k, dict())
-                        params[k][step] = v.detach().numpy().tolist()
+                        params[k]["step_"+str(step)] = v.detach().numpy()
 
             # gradient_norms = self._reset_params(params=params_step, p=.01, gradient_norms=gradient_norms)
             if convergence and step >= min_steps:
@@ -483,30 +487,12 @@ class MVNMixtureModel():
             "params":params}
 
 
-    # def _reset_params(self, params=None, p=.01, gradient_norms=None):
-    #     if params is None:
-    #         params = self._get_learned_parameters()
-    #     if random.random() < p:
-    #         clusters = self._retrieve_cluster(params=params)  # current clusters
-    #         means = torch.zeros_like(self.init_params["mean"])
-    #         for cl in clusters.unique():
-    #             d_k = self.dataset.index_select(dim=0, index=torch.where(clusters==cl)[0]).float()
-    #             means[int(cl),] = d_k.mean(dim=0).clone().detach().requires_grad_()
-
-    #         pyro.get_param_store()["mean_param"] = means.clone().detach().requires_grad_()
-    #         for name, value in pyro.get_param_store().named_parameters():
-    #             if name == "mean_param":
-    #                 value.register_hook(lambda g, name=name: gradient_norms[name].append(g.norm().item()))
-    #     return gradient_norms
-
-
     def _convergence_grads(self, gradient_norms, conv, p=0.005):
         for gr in gradient_norms.keys():
             if gr in ["mean_param", "sigma_vector_param"]:
                 prev = gradient_norms[gr][-2]
                 curr = gradient_norms[gr][-1]
                 cc = np.abs(prev - curr) < curr*p
-                # print(gradient_norms[gr][-2], gradient_norms[gr][-1], np.abs(prev - curr), curr*p)
         if cc:
             return conv +1
         return 0
@@ -544,8 +530,7 @@ class MVNMixtureModel():
         param_store = pyro.get_param_store()
         if self._autoguide:
             raise NotImplementedError
-            # param_store = self._global_guide()
-        
+
         p = {}
         p["N"], p["K"], p["T"] = self.params["N"], self.params["K"], self.params["T"]
         p["weights"] = param_store["weights_param"]
@@ -578,7 +563,7 @@ class MVNMixtureModel():
         finally:
             return
 
-    
+
     def _retrieve_cluster(self, assignments=None, params=None):
         if params is not None:
             _, assignments = self.compute_assignments(params=params)
@@ -603,15 +588,10 @@ class MVNMixtureModel():
                 if params["z_probs"][o, cluster] < min_prob:
                     keep_low = torch.cat([keep_low[0:cluster], keep_low[cluster+1:]])
                     break
-                    # count += 1
-            # if count < obs.shape[0]:
-                # keep_low = torch.cat([keep_low[0:cluster], keep_low[cluster+1:]])
 
         keep = torch.tensor(np.where(params["z_assignments"].sum(dim=0) > n)[0])
-        try:
-            keep = torch.unique(torch.cat([keep, keep_low]))
-        except:
-            keep = keep
+        try: keep = torch.unique(torch.cat([keep, keep_low]))
+        except: keep = keep
         
         if len(keep) == 0:
             return params
