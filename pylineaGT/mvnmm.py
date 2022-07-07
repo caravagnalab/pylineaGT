@@ -47,7 +47,7 @@ class MVNMixtureModel():
         self.params = {"N":self._N, "K":self.K, "T":self._T}
         self.init_params = {"N":self._N, "K":self.K, "T":self._T, \
             "sigma":None, "mean":None, "weights":None, \
-            "clusters":None, "var_constr":None}
+            "clusters":None, "var_constr":None, "is_computed":None}
         self.hyperparameters = { \
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().max() / 2, \
@@ -302,7 +302,7 @@ class MVNMixtureModel():
                     sigma_chol[k]).add(torch.eye(self._T))
         return Sigma
 
-    
+
     def _initialize_centroids(self, K, N, random_state):
         km = KMeans(n_clusters=K, random_state=random_state).fit(self.dataset)
         self.init_params["clusters"] = torch.from_numpy(km.labels_)
@@ -368,18 +368,21 @@ class MVNMixtureModel():
         as the proportion of IS assigned to each cluster and the
         Poisson lambda or Gaussian mean as the centers of each cluster.
         '''
-        N, K = self.params["N"], self.params["K"]
+        if not self.init_params["is_computed"]:
+            N, K = self.params["N"], self.params["K"]
 
-        ctrs = self._initialize_centroids(K, N, random_state)
-        var, var_constr = self._initialize_variance(K, ctrs)
-        sigma_chol = self._initialize_sigma_chol(K)
-        Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
+            ctrs = self._initialize_centroids(K, N, random_state)
+            var, var_constr = self._initialize_variance(K, ctrs)
+            sigma_chol = self._initialize_sigma_chol(K)
+            Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
 
-        self.init_params["mean"] = ctrs
-        self.init_params["sigma_vector"] = var
-        self.init_params["var_constr"] = var_constr
-        self.init_params["sigma_chol"] = sigma_chol
-        self.init_params["sigma"] = Sigma
+            self.init_params["mean"] = ctrs
+            self.init_params["sigma_vector"] = var
+            self.init_params["var_constr"] = var_constr
+            self.init_params["sigma_chol"] = sigma_chol
+            self.init_params["sigma"] = Sigma
+
+            self.init_params["is_computed"] = True
         
         return self.init_params
 
