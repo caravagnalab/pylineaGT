@@ -390,7 +390,7 @@ class MVNMixtureModel():
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.001, cov_type="diag", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
-            min_steps=1, p=0.01, random_state=25, store_params=False, show_progr=True):
+            min_steps=1, p=2, random_state=25, store_params=False, show_progr=True):
         pyro.enable_validation(True)
         pyro.clear_param_store()
 
@@ -438,7 +438,7 @@ class MVNMixtureModel():
         return self.svi.loss(self.model, self._global_guide)
 
 
-    def _train(self, steps, convergence, min_steps=1, p=0.01, \
+    def _train(self, steps, convergence, min_steps=1, p=2, \
         show_progr=True, store_params=False):
         '''
         Function to perform the training of the model. \\
@@ -479,7 +479,7 @@ class MVNMixtureModel():
                 sigma_conv[0], sigma_conv[1] = sigma_conv[1], params_step["sigma_vector"]
                 conv = self._convergence(mean_conv, sigma_conv, conv, p=p)
                 # conv = self._convergence_grads(gradient_norms, conv)
-                if conv == 10:
+                if conv == 5:
                     if show_progr:
                         t.set_description("ELBO %f" % elb)
                         t.reset(total=step)
@@ -510,8 +510,16 @@ class MVNMixtureModel():
             return conv + 1
         return 0
 
+    
+    def _normalize(self, par):
+        # zi = (xi - min(x)) / (max(x) - min(x))
+        norm = list()
+        for p in par:
+            norm.append(( p - torch.min(p) ) / ( torch.max(p) - torch.min(p) ) * 100)
+        return norm
 
-    def _check_convergence(self, par, p=0.01) -> Boolean:
+
+    def _check_convergence(self, par, p=2) -> Boolean:
         '''
         - `par` -> list of 2 elements given the previous (at index 0) and current (at index 1) 
         estimated values for a parameter.
@@ -519,14 +527,20 @@ class MVNMixtureModel():
         The function returns `True` if more than 95% of the values changed less than `perc*100`% 
         in the current step with respect to the previous one.
         '''
+        par = self._normalize(par)
         eps = p * self._settings["lr"]
+        # print(eps)
         n = 0
         for k in range(par[0].shape[0]):
             for t in range(par[0].shape[1]):
-                perc = eps * torch.max(torch.tensor(1), par[0][k,t])
+                perc = eps * par[0][k,t] # torch.max(torch.tensor(1), par[0][k,t])
                 if torch.absolute(par[0][k,t] - par[1][k,t]) <= perc:
                     n += 1
-        return n >= .99 * self.params["K"]*self.params["T"]
+                # else:
+                #     print(par[0][k,t] - par[1][k,t], eps * par[0][k,t])
+
+        # print(n, .8 * self.params["K"]*self.params["T"])
+        return n >= .9 * self.params["K"]*self.params["T"]
 
 
     def _get_learned_parameters(self) -> Dict:
