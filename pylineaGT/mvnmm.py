@@ -1,5 +1,6 @@
 from collections import defaultdict
 from pyclbr import Function
+from random import random
 from tokenize import Double
 from typing import Dict
 from xmlrpc.client import Boolean
@@ -389,7 +390,7 @@ class MVNMixtureModel():
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.001, cov_type="diag", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
-            min_steps=1, p=0.05, random_state=25, store_params=False, show_progr=True):
+            min_steps=1, p=0.01, random_state=25, store_params=False, show_progr=True):
         pyro.enable_validation(True)
         pyro.clear_param_store()
 
@@ -398,6 +399,9 @@ class MVNMixtureModel():
         self._max_iter = steps
         self.cov_type = cov_type
         self._seed = random_state
+
+        if random_state is not None:
+            pyro.set_rng_seed(random_state)
 
         if initializ:
             # set the guide and initialize the SVI object to minimize the initial loss 
@@ -507,19 +511,20 @@ class MVNMixtureModel():
         return 0
 
 
-    def _check_convergence(self, par, perc=0.01) -> Boolean:
+    def _check_convergence(self, par, p=0.01) -> Boolean:
         '''
         - `par` -> list of 2 elements given the previous (at index 0) and current (at index 1) 
         estimated values for a parameter.
-        - `perc` -> numeric value in `[0,1]`.
+        - `p` -> numeric value in `[0,1]`, corresponding to a percentage of the learning rate used for convergence.
         The function returns `True` if more than 95% of the values changed less than `perc*100`% 
         in the current step with respect to the previous one.
         '''
+        eps = p * self._settings["lr"]
         n = 0
         for k in range(par[0].shape[0]):
             for t in range(par[0].shape[1]):
-                p = perc * torch.max(torch.tensor(1), par[0][k,t])
-                if torch.absolute(par[0][k,t] - par[1][k,t]) <= p:
+                # perc = eps * torch.max(torch.tensor(1), par[0][k,t])
+                if torch.absolute(par[0][k,t] - par[1][k,t]) <= eps:
                     n += 1
         return n >= .99 * self.params["K"]*self.params["T"]
 
