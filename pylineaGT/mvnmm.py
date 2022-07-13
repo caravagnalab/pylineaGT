@@ -523,8 +523,8 @@ class MVNMixtureModel():
         n = 0
         for k in range(par[0].shape[0]):
             for t in range(par[0].shape[1]):
-                # perc = eps * torch.max(torch.tensor(1), par[0][k,t])
-                if torch.absolute(par[0][k,t] - par[1][k,t]) <= eps:
+                perc = eps * torch.max(torch.tensor(1), par[0][k,t])
+                if torch.absolute(par[0][k,t] - par[1][k,t]) <= perc:
                     n += 1
         return n >= .99 * self.params["K"]*self.params["T"]
 
