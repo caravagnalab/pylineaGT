@@ -1,6 +1,5 @@
 from collections import defaultdict
 from pyclbr import Function
-from random import random
 from tokenize import Double
 from typing import Dict
 from xmlrpc.client import Boolean
@@ -55,7 +54,7 @@ class MVNMixtureModel():
             # mean and sd for the Normal prior of the variance
             "var_loc":torch.tensor(55).float(), \
             "var_scale":torch.tensor(30).float(), \
-            "min_var":torch.tensor(20).float(),
+            "min_var":torch.tensor(5).float(),
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
@@ -388,11 +387,13 @@ class MVNMixtureModel():
         return self.init_params
 
 
-    def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.001, cov_type="diag", \
+    def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.005, cov_type="diag", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
             min_steps=1, p=2, random_state=25, store_params=False, show_progr=True):
+        
         pyro.enable_validation(True)
-        pyro.clear_param_store()
+        # pyro.clear_param_store()
+        pyro.get_param_store().__init__()
 
         self._settings = {"optim":optim_fn({"lr":lr, "betas": (0.93, 0.999)}), "loss":loss_fn, "lr":lr}
         self._is_trained = False
@@ -438,8 +439,7 @@ class MVNMixtureModel():
         return self.svi.loss(self.model, self._global_guide)
 
 
-    def _train(self, steps, convergence, min_steps=1, p=2, \
-        show_progr=True, store_params=False):
+    def _train(self, steps, convergence, min_steps, p, show_progr=True, store_params=False):
         '''
         Function to perform the training of the model. \\
         `steps` is the maximum number of steps to be performed. \\
@@ -510,11 +510,13 @@ class MVNMixtureModel():
             return conv + 1
         return 0
 
-    
+
     def _normalize(self, par):
         # zi = (xi - min(x)) / (max(x) - min(x))
         norm = list()
         for p in par:
+            if torch.min(p) == torch.max(p):
+                norm.append(p)
             norm.append(( p - torch.min(p) ) / ( torch.max(p) - torch.min(p) ) * 100)
         return norm
 
@@ -537,9 +539,8 @@ class MVNMixtureModel():
                 if torch.absolute(par[0][k,t] - par[1][k,t]) <= perc:
                     n += 1
                 # else:
-                #     print(par[0][k,t] - par[1][k,t], eps * par[0][k,t])
+                #     print(par[0][k,t], par[1][k,t], par[0][k,t] - par[1][k,t], eps * par[0][k,t])
 
-        # print(n, .8 * self.params["K"]*self.params["T"])
         return n >= .9 * self.params["K"]*self.params["T"]
 
 
