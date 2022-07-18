@@ -8,7 +8,7 @@ print(long_description)
 
 setup(
     name = "pylineaGT",
-    version = "0.1.0",
+    version = "0.1.1",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",
