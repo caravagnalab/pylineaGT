@@ -1,11 +1,19 @@
 from setuptools import setup, find_packages
 
+from pathlib import Path
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text()
+
+print(long_description)
+
 setup(
     name = "pylineaGT",
-    version = "0.0.58",
+    version = "0.1.0",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     license = "GPL-3.0",
     packages=["pylineaGT"],
     python_requires = ">=3.6",

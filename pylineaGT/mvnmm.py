@@ -144,7 +144,7 @@ class MVNMixtureModel():
         self.lm["slope"], self.lm["intercept"] = slope, intercept
 
 
-    def _filter_dataframe_init(self, min_ccf=.05, k_interval=(5,25), \
+    def _filter_dataframe_init(self, min_ccf=.05, k_interval=(5,15), \
             metric="calinski_harabasz_score", random_state=25):
         '''
         Function to filter the input dataset according to the centroid the clusters output
@@ -347,7 +347,7 @@ class MVNMixtureModel():
 
         return var, var_constr
 
-    
+
     def _initialize_sigma_chol(self, K):
         if self.cov_type == "diag" or self._T == 1:
             sigma_chol = torch.eye(self._T) * 1.
@@ -389,7 +389,7 @@ class MVNMixtureModel():
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.005, cov_type="diag", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
-            min_steps=1, p=2, random_state=25, store_params=False, show_progr=True):
+            min_steps=1, p=.5, random_state=25, store_params=False, show_progr=True):
         
         pyro.enable_validation(True)
         # pyro.clear_param_store()
@@ -471,7 +471,7 @@ class MVNMixtureModel():
                 for k,v in params_step.items():
                     if k in ["weights", "mean", "sigma_vector", "sigma_chol"]:
                         params[k] = params.get(k, dict())
-                        params[k]["step_"+str(step)] = v.detach().numpy()
+                        params[k]["step_"+str(step)] = v.clone().detach().numpy()
 
             # gradient_norms = self._reset_params(params=params_step, p=.01, gradient_norms=gradient_norms)
             if convergence and step >= min_steps:
@@ -494,15 +494,15 @@ class MVNMixtureModel():
             "params":params}
 
 
-    def _convergence_grads(self, gradient_norms, conv, p=0.005):
-        for gr in gradient_norms.keys():
-            if gr in ["mean_param", "sigma_vector_param"]:
-                prev = gradient_norms[gr][-2]
-                curr = gradient_norms[gr][-1]
-                cc = np.abs(prev - curr) < curr*p
-        if cc:
-            return conv +1
-        return 0
+    # def _convergence_grads(self, gradient_norms, conv):
+    #     for gr in gradient_norms.keys():
+    #         if gr in ["mean_param", "sigma_vector_param"]:
+    #             prev = gradient_norms[gr][-2]
+    #             curr = gradient_norms[gr][-1]
+    #             cc = np.abs(prev - curr) < curr*p
+    #     if cc:
+    #         return conv +1
+    #     return 0
 
 
     def _convergence(self, mean_conv, sigma_conv, conv, p):
@@ -521,7 +521,7 @@ class MVNMixtureModel():
         return norm
 
 
-    def _check_convergence(self, par, p=2) -> Boolean:
+    def _check_convergence(self, par, p) -> Boolean:
         '''
         - `par` -> list of 2 elements given the previous (at index 0) and current (at index 1) 
         estimated values for a parameter.
@@ -556,11 +556,11 @@ class MVNMixtureModel():
 
         p = {}
         p["N"], p["K"], p["T"] = self.params["N"], self.params["K"], self.params["T"]
-        p["weights"] = param_store["weights_param"]
+        p["weights"] = param_store["weights_param"].clone().detach()
 
-        p["mean"] = param_store["mean_param"]
-        p["sigma_vector"] = param_store["sigma_vector_param"]
-        p["sigma_chol"] = param_store["sigma_chol_param"]
+        p["mean"] = param_store["mean_param"].clone().detach()
+        p["sigma_vector"] = param_store["sigma_vector_param"].clone().detach()
+        p["sigma_chol"] = param_store["sigma_chol_param"].clone().detach()
 
         if self._is_trained:
             p["sigma"] = self.compute_Sigma(p["sigma_chol"], p["sigma_vector"], p["K"])
