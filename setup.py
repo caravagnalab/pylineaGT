@@ -4,11 +4,9 @@ from pathlib import Path
 this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text()
 
-print(long_description)
-
 setup(
     name = "pylineaGT",
-    version = "0.1.1",
+    version = "0.1.2",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",

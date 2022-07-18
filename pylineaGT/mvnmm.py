@@ -138,9 +138,9 @@ class MVNMixtureModel():
             intercept[t] = torch.tensor(fitted.intercept_[0])
             
             # check that y=0 when x >= (max_cov*1.5 + max_cov/10)
-            if (slope[t] * torch.tensor(max(xx) * 1.5) + intercept[t]) <= (max(xx)/10):
-                intercept[t] = torch.max(-1*( slope[t] * torch.tensor(max(xx)*1.5) ), \
-                    torch.tensor(max(xx) / 10))
+            if (slope[t] * torch.tensor(max(xx)*1.2) + intercept[t]) <= (max(xx) / 15):
+                intercept[t] = torch.max(-1*( slope[t] * torch.tensor(max(xx)*1.2) ), \
+                    torch.tensor(max(xx) / 15))
         self.lm["slope"], self.lm["intercept"] = slope, intercept
 
 
@@ -180,7 +180,7 @@ class MVNMixtureModel():
             return sklearn.metrics.silhouette_score
 
 
-    def _find_best_k(self, k_interval=(5,30), index_fn=sklearn.metrics.calinski_harabasz_score, random_state=25):
+    def _find_best_k(self, k_interval=(5,20), index_fn=sklearn.metrics.calinski_harabasz_score, random_state=25):
         k_min = min(max(k_interval[0], 2), self.dataset.unique().shape[0]-1)
         k_max = min(k_interval[1], self.dataset.unique().shape[0]-1)
 
