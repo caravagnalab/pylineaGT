@@ -205,7 +205,7 @@ class MVNMixtureModel():
         N, K = self._N, self.K
 
         weights = pyro.sample("weights", distr.Dirichlet(torch.ones(K)))  # mixing proportions for each component sample the mixing proportion
-        
+
         mean_scale = self.hyperparameters["mean_scale"]
         mean_loc = self.hyperparameters["mean_loc"]
         var_loc = self.hyperparameters["var_loc"]
