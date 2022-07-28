@@ -15,13 +15,11 @@ class Regression():
         - `x` -> a tensor of integer values corresponding to time coordinates.
         - `y` -> a tensor with shape `[N,L]`, being `L` the number of lineages.
         '''
-        self.N = x.shape[0]
+        self.N = x.shape[0]  # n of timepoints
         self.x = x.reshape((self.N,1)) if len(x.shape) == 2 else x  # timepoints
-        self.y = self.check_zero(y)  # the n of cells
+        self.y = self.check_zero(y)  # to avoid log of 0, change 0s to 1e-20
         
         self.L = self.y.shape[1]  # n of lineages
-        # print(self.L)
-        # print(self.y)
         self.compute_initial_t()
 
 
@@ -65,7 +63,6 @@ class Regression():
         ## mm is the maximum observed population value per lineage
         unif_low = torch.max(self.y, dim=0).values.ceil()
         unif_high = torch.max(unif_low*2, unif_low+1)
-        # print(unif_low, unif_high)
         t1 = self.init_time
 
         with pyro.plate("lineages", self.L):
@@ -73,7 +70,6 @@ class Regression():
             fitn = pyro.sample("fitness", distr.Normal(0., .5))
 
             ## TODO improve the limits of the Uniform ?
-            # print(unif_low, unif_high)
             carrying_capacity = pyro.sample("carr_capac", distr.Uniform(low=unif_low, high=unif_high))
 
             # estimate the t0 for the subclones
@@ -83,11 +79,9 @@ class Regression():
                 t1 = pyro.sample("init_time", distr.Uniform(1, self.init_time.float()))
 
         with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(.1))
+            sigma = pyro.sample("sigma", distr.HalfNormal(.01))
 
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
-        # logits = (self.x.expand(self.N, self.L) - self.init_time).clamp(0) * rate - \
-        #     torch.log(carrying_capacity -1) + sigma
         logits = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate - \
             torch.log(carrying_capacity -1)
 
@@ -111,11 +105,10 @@ class Regression():
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
 
         with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(.1))
+            sigma = pyro.sample("sigma", distr.HalfNormal(.01))
 
         # for each lineage, the pop grows as r*(t-t1), 
         # where t1 is the time the population is first observed
-        # mean = (self.x.expand(self.N, self.L) - self.init_time).clamp(0) * rate
         mean = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate
 
         for ll in pyro.plate("lineages2", self.L):
@@ -133,30 +126,12 @@ class Regression():
         self.log = True if "log" in regr else False
 
 
-    # def _initialize(self, seed):
-    #     '''
-    #     Function used to optimize the initialization of the SVI object.
-    #     '''
-    #     pyro.set_rng_seed(seed)
-    #     pyro.get_param_store().__init__()
-    #     self._global_model = self.model_exp if self.exp else self.model_logistic if self.log else None
-    #     self._global_guide = self.guide()
-
-    #     self.svi = SVI(self._global_model, self._global_guide, optim=self._settings["optim"], \
-    #         loss=self._settings["loss"]) 
-    #     return self.svi.loss(self._global_model, self._global_guide)
-
-
     def train(self, steps=500, optim=pyro.optim.Adam, lr=0.01, loss_fn=pyro.infer.Trace_ELBO(), \
             regr="exp", p_rate=None, min_steps=50, p=.5, random_state=25):
         pyro.enable_validation(True)
         
         ## to clear the param store
         pyro.get_param_store().__init__()
-        # pyro.clear_param_store()
-
-        print("Param store")
-        [print(k,v) for k,v in pyro.get_param_store().items()] 
 
         if random_state is not None:
             pyro.set_rng_seed(random_state)
@@ -167,8 +142,6 @@ class Regression():
         self.p_rate = p_rate
         
         self._settings = {"optim":optim({"lr": lr}), "lr":lr, "loss":loss_fn}
-        # loss, self._seed = min((self._initialize(seed), seed) for seed in range(100))
-        # self._initialize(self._seed)
         self._global_model = self.model_exp if self.exp else self.model_logistic if self.log else None
         self._global_guide = self.guide()
         self.svi = SVI(self._global_model, self._global_guide, self._settings["optim"], Trace_ELBO())

@@ -54,7 +54,7 @@ class MVNMixtureModel():
             # mean and sd for the Normal prior of the variance
             "var_loc":torch.tensor(55).float(), \
             "var_scale":torch.tensor(30).float(), \
-            "min_var":torch.tensor(5).float(),
+            "min_var":torch.tensor(5).float(), \
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
@@ -387,7 +387,7 @@ class MVNMixtureModel():
         return self.init_params
 
 
-    def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.005, cov_type="diag", \
+    def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.005, cov_type="full", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
             min_steps=1, p=.5, random_state=25, store_params=False, show_progr=True):
         
