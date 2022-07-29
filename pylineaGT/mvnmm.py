@@ -13,6 +13,7 @@ from pyro.infer import SVI
 from torch.distributions import constraints
 from sklearn.cluster import KMeans
 from tqdm import trange
+from random import randint
 
 
 class MVNMixtureModel():
@@ -58,6 +59,7 @@ class MVNMixtureModel():
             "eta":torch.tensor(1).float()}
         self._autoguide = False
         self._enumer = "parallel"
+        self._init_seed = [randint(1,1000) for _ in range(2)]
 
         if len(self.dimensions) == 0:
             self.dimensions = [str(_) for _ in range(self._T)]
@@ -161,16 +163,37 @@ class MVNMixtureModel():
 
         index_fn = self._find_index_function(metric)
         N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn, random_state=random_state)
-        km = KMeans(n_clusters=K).fit(self.dataset)
+
+        duplicated_rows, duplicated_idx, counts_cum = self.check_input_kmeans()
+
+        km = KMeans(n_clusters=K).fit(self.dataset.unique())
         assert km.n_iter_ < km.max_iter
 
         clusters = km.labels_
+
+        # clusters = [km.labels_[i] for i in range(N) if i not in duplicated_idx else]
+
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + torch.abs(torch.normal(0, 1, (K, self._T)))
         keep = torch.where((ctrs / ctrs.sum(dim=0) > min_ccf).sum(dim=1) > 0)[0]
         
         try: ii = self.IS[np.in1d(np.array(clusters), keep)]
         except: ii = self.IS
         finally: return self.dataset[np.in1d(np.array(clusters), keep)], ii
+
+
+    def check_input_kmeans(self):
+        a = self.dataset.numpy()
+
+        unq, count = np.unique(a, axis=0, return_counts=True)
+        repeated_groups = unq[count > 1].tolist()
+
+        removed_idx = {}
+        for i, repeated_group in enumerate(repeated_groups):
+            rpt_idxs = np.argwhere(np.all(a == repeated_group, axis=1)).flatten()
+            removed = rpt_idxs[1:]
+            removed_idx[rpt_idxs[0]] = removed
+
+        return repeated_groups, removed_idx
 
 
     def _find_index_function(self, index="calinski_harabasz_score"):
@@ -312,8 +335,13 @@ class MVNMixtureModel():
         self.init_params["weights"] = w.float().detach()
 
         # add gaussian noise to the centroids and reset too low values
+        pyro.set_rng_seed(self._init_seed[0])
+
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + \
-            torch.abs(torch.normal(0, 1, (K, self._T)))
+            torch.abs(torch.normal(0, 100, (K, self._T)))
+
+        pyro.set_rng_seed(self._seed)
+
         ctrs[ctrs <= 0] = 0.01
         return ctrs
 
@@ -329,7 +357,9 @@ class MVNMixtureModel():
             var_constr[cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
 
         # add gaussian noise to the variance
-        var += torch.abs(torch.normal(0, 1, (K, self._T)))
+        pyro.set_rng_seed(self._init_seed[1])
+        var += torch.abs(torch.normal(0, 100, (K, self._T)))
+        pyro.set_rng_seed(self._seed)
 
         # reset variance contraints and variance values
         max_var = self.hyperparameters.get("max_var", None)
@@ -383,7 +413,7 @@ class MVNMixtureModel():
             self.init_params["sigma"] = Sigma
 
             self.init_params["is_computed"] = True
-        
+
         return self.init_params
 
 
@@ -392,7 +422,6 @@ class MVNMixtureModel():
             min_steps=1, p=.5, random_state=25, store_params=False, show_progr=True):
         
         pyro.enable_validation(True)
-        # pyro.clear_param_store()
         pyro.get_param_store().__init__()
 
         self._settings = {"optim":optim_fn({"lr":lr, "betas": (0.93, 0.999)}), "loss":loss_fn, "lr":lr}
@@ -400,9 +429,10 @@ class MVNMixtureModel():
         self._max_iter = steps
         self.cov_type = cov_type
         self._seed = random_state
+        # self._init_seed = randint(1,1000)
 
-        if random_state is not None:
-            pyro.set_rng_seed(random_state)
+        if self._seed is not None:
+            pyro.set_rng_seed(self._seed)
 
         if initializ:
             # set the guide and initialize the SVI object to minimize the initial loss 

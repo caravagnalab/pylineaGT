@@ -1,10 +1,10 @@
 import pandas as pd
 import pyro
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
-        n_runs=2, steps=500, lr=0.005, p=0.01, convergence=True,
-        covariance="diag", hyperparameters=dict(), show_progr=True, 
+        n_runs=2, steps=500, lr=0.005, p=1, convergence=True,
+        covariance="full", hyperparameters=dict(), show_progr=True, 
         store_grads=True, store_losses=True, store_params=True,\
         random_state=25):
 
@@ -32,18 +32,19 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
 
             kk = x_k.params["K"]
 
-            if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run)], ignore_index=True)
-            if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run)], ignore_index=True)  # list
-            if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run)], ignore_index=True)  # list
+            id = '.'.join([str(k), str(run)])
+
+            if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run, id)], ignore_index=True)
+            if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run, id)], ignore_index=True)  # list
+            if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run, id)], ignore_index=True)  # list
             
-            ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run)], ignore_index=True)
+            ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run, id)], ignore_index=True)
 
     return ic_df, losses_df, grads_df, params_df
 
 
-def single_run(k, df, IS=[], columns=[], lineages=[], run="", steps=500, covariance="diag", lr=0.001,
-    p=0.01, convergence=True, show_progr=True, random_state=25, 
-    hyperparameters=dict(), store_params=False):
+def single_run(k, df, IS=[], columns=[], lineages=[], run="", steps=500, covariance="full", lr=0.005,
+    p=1, convergence=True, show_progr=True, random_state=25, hyperparameters=dict(), store_params=False):
 
     pyro.clear_param_store()
     try:
@@ -56,31 +57,33 @@ def single_run(k, df, IS=[], columns=[], lineages=[], run="", steps=500, covaria
 
     for name, value in hyperparameters.items():
         x.set_hyperparameters(name, value)
-    
+
     x.fit(steps=steps, cov_type=covariance, lr=lr, p=p,
         convergence=convergence, random_state=random_state, 
-        show_progr=show_progr, store_params=store_params)
+        show_progr=show_progr, store_params=store_params, initializ=False)
     x.classifier()
 
     return x
 
 
-def compute_grads(model, kk, run):
+def compute_grads(model, kk, run, id):
     return pd.DataFrame({"K":kk, 
         "run":run, 
+        "id":id,
         "param":["mean_param","sigma_vector_param","weights_param"],
         "grad_norm":[model.losses_grad_train["gradients"]["mean_param"],
                      model.losses_grad_train["gradients"]["sigma_vector_param"],
                      model.losses_grad_train["gradients"]["weights_param"]]})
 
 
-def compute_loss(model, kk, run):
-    return pd.DataFrame({"K":kk, "run":run, "losses":[model.losses_grad_train["losses"]]})
+def compute_loss(model, kk, run, id):
+    return pd.DataFrame({"K":kk, "id":id, "run":run, "losses":[model.losses_grad_train["losses"]]})
 
 
-def retrieve_params(model, kk, run):
+def retrieve_params(model, kk, run, id):
     return pd.DataFrame({"K":kk, 
         "run":run, 
+        "id":id,
         "param":["mean","sigma_vector","weights","sigma_chol"],
         "params_values":[model.losses_grad_train["params"]["mean"],
                          model.losses_grad_train["params"]["sigma_vector"],
@@ -88,8 +91,8 @@ def retrieve_params(model, kk, run):
                          model.losses_grad_train["params"]["sigma_chol"]]})
 
 
-def compute_ic(model, kk, run):
-    ic_dict = {"K":[kk], "run":[run]}
+def compute_ic(model, kk, run, id):
+    ic_dict = {"K":[kk], "run":[run], "id":[id]}
     ic_dict["NLL"] = [float(model.compute_ic(method="NLL"))]
     ic_dict["BIC"] = [float(model.compute_ic(method="BIC"))]
     ic_dict["AIC"] = [float(model.compute_ic(method="AIC"))]
