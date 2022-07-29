@@ -1,12 +1,16 @@
 import pandas as pd
 import pyro
+from random import randint
 from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
         n_runs=2, steps=500, lr=0.005, p=1, convergence=True,
         covariance="full", hyperparameters=dict(), show_progr=True, 
         store_grads=True, store_losses=True, store_params=True,\
-        random_state=25):
+        seed=25, init_seed=None):
+
+    if init_seed is None:  # init seed is the seed for the params initialization -> specific for each run
+        init_seed = [randint(1,1000) for _ in range(n_runs)]
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
     
@@ -26,9 +30,10 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             # - AIC/BIC/ICL
             # - gradient norms for the parameters
             x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
-                run=run, steps=steps, covariance=covariance, lr=lr, p=p, 
+                steps=steps, covariance=covariance, lr=lr, p=p, 
                 hyperparameters=hyperparameters, convergence=convergence, 
-                show_progr=show_progr, store_params=store_params, random_state=random_state)
+                show_progr=show_progr, store_params=store_params, 
+                seed=seed, init_seed=init_seed[run-1])
 
             kk = x_k.params["K"]
 
@@ -43,8 +48,8 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
     return ic_df, losses_df, grads_df, params_df
 
 
-def single_run(k, df, IS=[], columns=[], lineages=[], run="", steps=500, covariance="full", lr=0.005,
-    p=1, convergence=True, show_progr=True, random_state=25, hyperparameters=dict(), store_params=False):
+def single_run(k, df, IS=[], columns=[], lineages=[], steps=500, covariance="full", lr=0.005,
+    p=1, convergence=True, show_progr=True, hyperparameters=dict(), store_params=False, seed=25, init_seed=10):
 
     pyro.clear_param_store()
     try:
@@ -59,8 +64,8 @@ def single_run(k, df, IS=[], columns=[], lineages=[], run="", steps=500, covaria
         x.set_hyperparameters(name, value)
 
     x.fit(steps=steps, cov_type=covariance, lr=lr, p=p,
-        convergence=convergence, random_state=random_state, 
-        show_progr=show_progr, store_params=store_params, initializ=False)
+        convergence=convergence, show_progr=show_progr, store_params=store_params, 
+        initializ=False, seed=seed, init_seed=init_seed)
     x.classifier()
 
     return x
