@@ -351,7 +351,7 @@ class MVNMixtureModel():
         pyro.set_rng_seed(self._init_seed)
 
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + \
-            torch.abs(torch.normal(0, 10, (K, self._T)))
+            torch.abs(torch.normal(0, 1, (K, self._T)))
 
         pyro.set_rng_seed(self._seed)
 
@@ -372,7 +372,7 @@ class MVNMixtureModel():
         # add gaussian noise to the variance
         pyro.set_rng_seed(self._init_seed)
 
-        var += torch.abs(torch.normal(0, 10, (K, self._T)))
+        var += torch.abs(torch.normal(0, 1, (K, self._T)))
         
         pyro.set_rng_seed(self._seed)
 
