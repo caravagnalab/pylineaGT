@@ -89,11 +89,10 @@ def retrieve_params(model, kk, run, id):
     return pd.DataFrame({"K":kk, 
         "run":run, 
         "id":id,
-        "param":["mean","sigma_vector","weights","sigma_chol"],
+        "param":["mean","sigma_vector","weights"],
         "params_values":[model.losses_grad_train["params"]["mean"],
                          model.losses_grad_train["params"]["sigma_vector"],
-                         model.losses_grad_train["params"]["weights"],
-                         model.losses_grad_train["params"]["sigma_chol"]]})
+                         model.losses_grad_train["params"]["weights"]]})
 
 
 def compute_ic(model, kk, run, id):
