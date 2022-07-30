@@ -1,7 +1,7 @@
 import pandas as pd
 import pyro
 from random import randint
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
         n_runs=2, steps=500, lr=0.005, p=1, convergence=True,
@@ -10,7 +10,12 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
         seed=25, init_seed=None):
 
     if init_seed is None:  # init seed is the seed for the params initialization -> specific for each run
-        init_seed = [randint(1,1000) for _ in range(n_runs)]
+        init_seed = [randint(1,10) for _ in range(n_runs)]
+        while len(set(init_seed)) != len(init_seed):
+            init_seed = [randint(1,10) for _ in range(n_runs)]
+    
+    print(init_seed)
+    # init_seed = [10 for _ in range(n_runs)]
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
     
@@ -39,11 +44,11 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
 
             id = '.'.join([str(k), str(run)])
 
-            if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run, id)], ignore_index=True)
-            if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run, id)], ignore_index=True)  # list
-            if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run, id)], ignore_index=True)  # list
+            if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run, id, init_seed[run-1])], ignore_index=True)
+            if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run, id, init_seed[run-1])], ignore_index=True)  # list
+            if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run, id, init_seed[run-1])], ignore_index=True)  # list
             
-            ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run, id)], ignore_index=True)
+            ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run, id, init_seed[run-1])], ignore_index=True)
 
     return ic_df, losses_df, grads_df, params_df
 
@@ -71,32 +76,34 @@ def single_run(k, df, IS=[], columns=[], lineages=[], steps=500, covariance="ful
     return x
 
 
-def compute_grads(model, kk, run, id):
+def compute_grads(model, kk, run, id, seed):
     return pd.DataFrame({"K":kk, 
         "run":run, 
         "id":id,
+        "seed":seed,
         "param":["mean_param","sigma_vector_param","weights_param"],
         "grad_norm":[model.losses_grad_train["gradients"]["mean_param"],
                      model.losses_grad_train["gradients"]["sigma_vector_param"],
                      model.losses_grad_train["gradients"]["weights_param"]]})
 
 
-def compute_loss(model, kk, run, id):
-    return pd.DataFrame({"K":kk, "id":id, "run":run, "losses":[model.losses_grad_train["losses"]]})
+def compute_loss(model, kk, run, id, seed):
+    return pd.DataFrame({"K":kk, "id":id, "run":run, "seed":seed, "losses":[model.losses_grad_train["losses"]]})
 
 
-def retrieve_params(model, kk, run, id):
+def retrieve_params(model, kk, run, id, seed):
     return pd.DataFrame({"K":kk, 
         "run":run, 
         "id":id,
+        "seed":seed,
         "param":["mean","sigma_vector","weights"],
         "params_values":[model.losses_grad_train["params"]["mean"],
                          model.losses_grad_train["params"]["sigma_vector"],
                          model.losses_grad_train["params"]["weights"]]})
 
 
-def compute_ic(model, kk, run, id):
-    ic_dict = {"K":[kk], "run":[run], "id":[id]}
+def compute_ic(model, kk, run, id, seed):
+    ic_dict = {"K":[kk], "run":[run], "id":[id], "seed":[seed]}
     ic_dict["NLL"] = [float(model.compute_ic(method="NLL"))]
     ic_dict["BIC"] = [float(model.compute_ic(method="BIC"))]
     ic_dict["AIC"] = [float(model.compute_ic(method="AIC"))]

@@ -13,7 +13,7 @@ from pyro.infer import SVI
 from torch.distributions import constraints
 from sklearn.cluster import KMeans
 from tqdm import trange
-from random import randint
+import random
 
 
 class MVNMixtureModel():
