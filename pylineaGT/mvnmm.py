@@ -163,21 +163,34 @@ class MVNMixtureModel():
         index_fn = self._find_index_function(metric)
         N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn, seed=seed)
 
-        duplicated_rows, duplicated_idx, counts_cum = self.check_input_kmeans()
-
-        km = KMeans(n_clusters=K).fit(self.dataset.unique())
-        assert km.n_iter_ < km.max_iter
+        km = self.run_kmeans(K, seed)
 
         clusters = km.labels_
-
-        # clusters = [km.labels_[i] for i in range(N) if i not in duplicated_idx else]
-
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + torch.abs(torch.normal(0, 1, (K, self._T)))
         keep = torch.where((ctrs / ctrs.sum(dim=0) > min_ccf).sum(dim=1) > 0)[0]
-        
+
         try: ii = self.IS[np.in1d(np.array(clusters), keep)]
         except: ii = self.IS
         finally: return self.dataset[np.in1d(np.array(clusters), keep)], ii
+
+
+    def run_kmeans(self, K, seed):
+        removed_idx = self.check_input_kmeans()
+
+        km = KMeans(n_clusters=K, random_state=seed).fit(self.dataset.unique(dim=0))
+        assert km.n_iter_ < km.max_iter
+
+        clusters = km.labels_
+        for rm in sorted(removed_idx.keys()):
+            # insert 0 elements to restore the original number of obs
+            clusters = np.insert(clusters, rm, 0, 0)
+        for rm in removed_idx.keys():
+            # insert in the repeated elements the correct cluster
+            rpt = removed_idx[rm]  # the index of the kept row
+            clusters[rm] = clusters[rpt]
+
+        km.labels_ = clusters
+        return km
 
 
     def check_input_kmeans(self):
@@ -190,9 +203,10 @@ class MVNMixtureModel():
         for i, repeated_group in enumerate(repeated_groups):
             rpt_idxs = np.argwhere(np.all(a == repeated_group, axis=1)).flatten()
             removed = rpt_idxs[1:]
-            removed_idx[rpt_idxs[0]] = removed
+            for rm in removed:
+                removed_idx[rm] = rpt_idxs[0]
 
-        return repeated_groups, removed_idx
+        return removed_idx
 
 
     def _find_index_function(self, index="calinski_harabasz_score"):
@@ -215,8 +229,8 @@ class MVNMixtureModel():
         
         scores = torch.zeros(k_interval[1])
         for k in range(k_interval[0], k_interval[1]):
-            km = KMeans(n_clusters=k, random_state=seed)
-            labels = km.fit_predict(self.dataset)
+            km = self.run_kmeans(k, seed)
+            labels = km.labels_
             real_k = len(np.unique(labels))
             scores[real_k] = max(scores[real_k], index_fn(self.dataset, labels))
         best_k = scores.argmax()
@@ -326,9 +340,9 @@ class MVNMixtureModel():
 
 
     def _initialize_centroids(self, K, N, seed):
-        km = KMeans(n_clusters=K, random_state=seed).fit(self.dataset)
+        km = self.run_kmeans(K, seed)
         self.init_params["clusters"] = torch.from_numpy(km.labels_)
-        
+
         # init the mixing proportions
         w = torch.tensor([(np.where(km.labels_ == k)[0].shape[0]) / N for k in range(km.n_clusters)])
         self.init_params["weights"] = w.float().detach()
