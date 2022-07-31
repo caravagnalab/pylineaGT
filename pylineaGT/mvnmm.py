@@ -371,7 +371,7 @@ class MVNMixtureModel():
 
         # add gaussian noise to the variance
         pyro.set_rng_seed(self._init_seed)
-
+        
         var += torch.abs(torch.normal(0, 1, (K, self._T)))
         
         pyro.set_rng_seed(self._seed)
