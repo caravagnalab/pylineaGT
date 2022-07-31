@@ -1,7 +1,7 @@
 import pandas as pd
 import pyro
 from random import randint
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
         n_runs=1, steps=500, lr=0.005, p=1, convergence=True, initializ=False,
@@ -30,11 +30,13 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             # - losses of the run
             # - AIC/BIC/ICL
             # - gradient norms for the parameters
+            print(cov_df.shape)
             x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
                 steps=steps, covariance=covariance, lr=lr, p=p, initializ=initializ,
                 hyperparameters=hyperparameters, convergence=convergence, 
                 show_progr=show_progr, store_params=store_params, 
                 seed=seed, init_seed=init_seed[run-1])
+            print(cov_df.shape)
 
             kk = x_k.params["K"]
 
