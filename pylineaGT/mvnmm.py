@@ -85,7 +85,7 @@ class MVNMixtureModel():
 
 
     def filter_dataset(self, min_cov=0, n=None, min_ccf=.05, k_interval=(5,25),
-            metric="calinski_harabasz_score", seed=25):
+            metric="calinski_harabasz_score", seed=5):
         '''
         Function to filter the input dataset.
         - `min_cov` -> hard threshold for each observation. Only the observations with at least a 
@@ -107,7 +107,7 @@ class MVNMixtureModel():
         finally: self.dataset = self.dataset[idxs,]
         
         self.dataset, self.IS = self._filter_dataframe_init(min_ccf=min_ccf,
-            k_interval=k_interval, metric=metric, seed=seed)
+            k_interval=k_interval, metric=metric)
 
         if n is not None:  # takes a random sample from the dataset
             n = min(n, self.dataset.shape[0])
@@ -146,7 +146,7 @@ class MVNMixtureModel():
 
 
     def _filter_dataframe_init(self, min_ccf=.05, k_interval=(5,15), \
-            metric="calinski_harabasz_score", seed=25):
+            metric="calinski_harabasz_score"):
         '''
         Function to filter the input dataset according to the centroid the clusters output
         from a KMeans, with `K` being the best `K` in `k_interval` according to `metric`.
@@ -157,13 +157,12 @@ class MVNMixtureModel():
         with the centroid of all timepoints below `5%` of the sum of centroids for all the timepoints.
         - `k_interval` -> interval of `K` values to look for the best `K`.
         - `metric` -> metric used to retrieve the best `K`, among `calinski_harabasz_score` and `silhouette`.
-        - `seed` -> seed value.
         '''
 
         index_fn = self._find_index_function(metric)
-        N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn, seed=seed)
+        N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn)
 
-        km = self.run_kmeans(K, seed)
+        km = self.run_kmeans(K)
 
         clusters = km.labels_
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + torch.abs(torch.normal(0, 1, (K, self._T)))
@@ -174,10 +173,10 @@ class MVNMixtureModel():
         finally: return self.dataset[np.in1d(np.array(clusters), keep)], ii
 
 
-    def run_kmeans(self, K, seed):
+    def run_kmeans(self, K):
         removed_idx = self.check_input_kmeans()
 
-        km = KMeans(n_clusters=K, random_state=seed).fit(self.dataset.unique(dim=0))
+        km = KMeans(n_clusters=K, random_state=0).fit(self.dataset.unique(dim=0))
         assert km.n_iter_ < km.max_iter
 
         clusters = km.labels_
@@ -216,7 +215,7 @@ class MVNMixtureModel():
             return sklearn.metrics.silhouette_score
 
 
-    def _find_best_k(self, k_interval=(5,20), index_fn=sklearn.metrics.calinski_harabasz_score, seed=25):
+    def _find_best_k(self, k_interval=(5,20), index_fn=sklearn.metrics.calinski_harabasz_score):
         k_min = min(max(k_interval[0], 2), self.dataset.unique().shape[0]-1)
         k_max = min(k_interval[1], self.dataset.unique().shape[0]-1)
 
@@ -229,7 +228,7 @@ class MVNMixtureModel():
         
         scores = torch.zeros(k_interval[1])
         for k in range(k_interval[0], k_interval[1]):
-            km = self.run_kmeans(k, seed)
+            km = self.run_kmeans(k)
             labels = km.labels_
             real_k = len(np.unique(labels))
             scores[real_k] = max(scores[real_k], index_fn(self.dataset, labels))
@@ -281,7 +280,7 @@ class MVNMixtureModel():
         '''
         if not self._autoguide:
             def guide_expl():
-                params = self._initialize_params(seed=self._seed)
+                params = self._initialize_params()
                 N, K = params["N"], params["K"]
                 min_var = self.hyperparameters["min_var"]
 
@@ -339,8 +338,8 @@ class MVNMixtureModel():
         return Sigma
 
 
-    def _initialize_centroids(self, K, N, seed):
-        km = self.run_kmeans(K, seed)
+    def _initialize_centroids(self, K, N):
+        km = self.run_kmeans(K)
         self.init_params["clusters"] = torch.from_numpy(km.labels_)
 
         # init the mixing proportions
@@ -348,12 +347,8 @@ class MVNMixtureModel():
         self.init_params["weights"] = w.float().detach()
 
         # add gaussian noise to the centroids and reset too low values
-        pyro.set_rng_seed(self._init_seed)
-
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + \
-            torch.abs(torch.normal(0, 1, (K, self._T)))
-
-        pyro.set_rng_seed(self._seed)
+            torch.abs(torch.normal(0, 1, (self.K, self._T)))
 
         ctrs[ctrs <= 0] = 0.01
         return ctrs
@@ -370,11 +365,7 @@ class MVNMixtureModel():
             var_constr[cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
 
         # add gaussian noise to the variance
-        pyro.set_rng_seed(self._init_seed)
-        
-        var += torch.abs(torch.normal(0, 1, (K, self._T)))
-        
-        pyro.set_rng_seed(self._seed)
+        var += torch.abs(torch.normal(0, 1, (self.K, self._T)))
 
         # reset variance contraints and variance values
         max_var = self.hyperparameters.get("max_var", None)
@@ -406,7 +397,7 @@ class MVNMixtureModel():
         return sigma_chol
 
 
-    def _initialize_params(self, seed=25):
+    def _initialize_params(self):
         '''
         Function to initialize the parameters.
         It performs a K-means clustering and define the initial weights 
@@ -416,7 +407,7 @@ class MVNMixtureModel():
         if not self.init_params["is_computed"]:
             N, K = self.params["N"], self.params["K"]
 
-            ctrs = self._initialize_centroids(K, N, seed)
+            ctrs = self._initialize_centroids(K, N)
             var, var_constr = self._initialize_variance(K, ctrs)
             sigma_chol = self._initialize_sigma_chol(K)
             Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
@@ -434,7 +425,7 @@ class MVNMixtureModel():
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.005, cov_type="full", \
             loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
-            min_steps=1, p=1, store_params=False, show_progr=True, seed=25, init_seed=10):
+            min_steps=1, p=1, store_params=False, show_progr=True, seed=5, init_seed=1):
         
         pyro.enable_validation(True)
         pyro.get_param_store().__init__()
@@ -446,14 +437,12 @@ class MVNMixtureModel():
         self._seed = seed
         self._init_seed = init_seed
 
-        if self._seed is not None:
-            pyro.set_rng_seed(self._seed)
-
         if initializ:
             # set the guide and initialize the SVI object to minimize the initial loss 
             loss, self._seed = min((self._initialize(seed), seed) for seed in range(100))
             self._initialize(self._seed)
         else:
+            pyro.set_rng_seed(self._seed)
             # set the guide and intialize the SVI object
             self._global_guide = self.guide()
             self.svi = SVI(self.model, self._global_guide, \
@@ -784,7 +773,8 @@ class MVNMixtureModel():
 
         if self.cov_type == "full":
             return params["weights"].numel() + params["mean"].numel() \
-                + params["sigma_vector"].numel() + self._T*(self._T-1) / 2
+                + params["sigma_vector"].numel() + params["K"]*self._T*(self._T-1) / 2
+
         if self.cov_type == "diag":
             return params["weights"].numel() + params["mean"].numel() \
                 + params["sigma_vector"].numel()

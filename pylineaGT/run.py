@@ -1,16 +1,15 @@
 import pandas as pd
 import pyro
 from random import randint
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
-        n_runs=2, steps=500, lr=0.005, p=1, convergence=True, initializ=False,
+        n_runs=1, steps=500, lr=0.005, p=1, convergence=True, initializ=False,
         covariance="full", hyperparameters=dict(), show_progr=True, 
-        store_grads=True, store_losses=True, store_params=True,\
-        seed=25, init_seed=None):
+        store_grads=True, store_losses=True, store_params=True, seed=5, init_seed=None):
 
     if init_seed is None:  # init seed is the seed for the params initialization -> specific for each run
-        init_seed = [randint(1,10) for _ in range(n_runs)]
+        init_seed = [randint(1,5) for _ in range(n_runs)]
         while len(set(init_seed)) != len(init_seed):
             init_seed = [randint(1,10) for _ in range(n_runs)]
     
@@ -39,7 +38,12 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
 
             kk = x_k.params["K"]
 
-            best_init_seed = x_k._init_seed
+            # print(x_k._noise)
+            # print(kk)
+            # print(x_k.compute_ic(method="BIC"))
+            # print(init_seed[run-1], x_k._seed)
+
+            best_init_seed = init_seed[run-1]
             best_seed = x_k._seed
 
             id = '.'.join([str(k), str(run)])
@@ -55,7 +59,7 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
 
 def single_run(k, df, IS=[], columns=[], lineages=[], steps=500, covariance="full", 
     lr=0.005, p=1, convergence=True, initializ=False, show_progr=True, 
-    hyperparameters=dict(), store_params=False, seed=25, init_seed=10):
+    hyperparameters=dict(), store_params=False, seed=5, init_seed=1):
 
     pyro.clear_param_store()
     try:
@@ -69,9 +73,9 @@ def single_run(k, df, IS=[], columns=[], lineages=[], steps=500, covariance="ful
     for name, value in hyperparameters.items():
         x.set_hyperparameters(name, value)
 
-    x.fit(steps=steps, cov_type=covariance, lr=lr, p=p,
-        convergence=convergence, show_progr=show_progr, store_params=store_params, 
-        initializ=initializ, seed=seed, init_seed=init_seed)
+    x.fit(steps=steps, cov_type=covariance, lr=lr, p=p, convergence=convergence, 
+        show_progr=show_progr, store_params=store_params, initializ=initializ, 
+        seed=seed, init_seed=init_seed)
     x.classifier()
 
     return x
