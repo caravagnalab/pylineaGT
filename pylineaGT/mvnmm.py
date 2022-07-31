@@ -100,6 +100,7 @@ class MVNMixtureModel():
         - `metric` -> metric used to retrieve the best `K`, among `calinski_harabasz_score` and `silhouette`.
         - `seed` -> seed value.
         '''
+        self._seed = seed
 
         idxs = torch.any(self.dataset >= min_cov, dim=1)
         try: self.IS = self.IS[idxs]
