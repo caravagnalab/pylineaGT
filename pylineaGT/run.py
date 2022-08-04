@@ -30,20 +30,13 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             # - losses of the run
             # - AIC/BIC/ICL
             # - gradient norms for the parameters
-            print(cov_df.shape)
             x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
                 steps=steps, covariance=covariance, lr=lr, p=p, initializ=initializ,
                 hyperparameters=hyperparameters, convergence=convergence, 
                 show_progr=show_progr, store_params=store_params, 
                 seed=seed, init_seed=init_seed[run-1])
-            print(cov_df.shape)
 
             kk = x_k.params["K"]
-
-            # print(x_k._noise)
-            # print(kk)
-            # print(x_k.compute_ic(method="BIC"))
-            # print(init_seed[run-1], x_k._seed)
 
             best_init_seed = init_seed[run-1]
             best_seed = x_k._seed

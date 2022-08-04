@@ -79,7 +79,7 @@ class Regression():
                 t1 = pyro.sample("init_time", distr.Uniform(1, self.init_time.float()))
 
         with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(.01))
+            sigma = pyro.sample("sigma", distr.HalfNormal(1))
 
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
         logits = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate - \
@@ -105,7 +105,7 @@ class Regression():
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
 
         with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(.01))
+            sigma = pyro.sample("sigma", distr.HalfNormal(1))
 
         # for each lineage, the pop grows as r*(t-t1), 
         # where t1 is the time the population is first observed
@@ -218,13 +218,51 @@ class Regression():
         return norm
 
 
-    def get_learned_params(self):
+    def get_learned_params(self, return_numpy=True):
         params = {}
         self._global_guide.requires_grad_(False)
         for name, value in self._global_guide().items():
             ## NOTE do NOT first detach() and then clone() because it will detach the accumulated gradient
-            params[name] = value.clone().detach().numpy()
-        params["init_time"] = params.get("init_time", self.init_time.clone().detach().numpy())
-        params["parent_rate"] = self.p_rate.clone().detach().numpy() if self.p_rate is not None else None
+            params[name] = value.clone().detach()
+            if return_numpy:
+                params[name] = params[name].numpy()
+        
+        if return_numpy:
+            params["init_time"] = params.get("init_time", self.init_time.clone().detach().numpy())
+            params["parent_rate"] = self.p_rate.clone().detach().numpy() if self.p_rate is not None else None
+        else:
+            params["init_time"] = params.get("init_time", self.init_time.clone().detach())
+            params["parent_rate"] = self.p_rate.clone().detach() if self.p_rate is not None else None
 
         return params
+
+
+    def compute_log_likelihood(self):
+        if self.exp:
+            return self._compute_exp_ll()
+        
+        if self.log:
+            return self._compute_log_ll()
+
+
+    def _compute_log_ll(self):
+        params = self.get_learned_params(return_numpy=False)
+
+        rate = params["fitness"] if self.p_rate is None else self.p_rate*(1+params["fitness"])
+        logits = (self.x.expand(self.N, self.L) - params["init_time"]).clamp(0) * rate - \
+            torch.log(params["carr_capac"] -1)
+
+        sigma = params["sigma"].unsqueeze(1)
+
+        return torch.sum(distr.Bernoulli(logits=logits + sigma, \
+            validate_args=False).log_prob(self.y / params["carr_capac"]), dim=0).detach().numpy()
+
+
+    def _compute_exp_ll(self):
+        params = self.get_learned_params(return_numpy=False)
+
+        rate = params["fitness"] if self.p_rate is None else self.p_rate*(1+params["fitness"])
+        mean = (self.x.expand(self.N, self.L) - params["init_time"]).clamp(0) * rate
+        sigma = params["sigma"].unsqueeze(1)
+
+        return torch.sum(distr.Normal(mean, sigma).log_prob(torch.log(self.y)), dim=0).detach().numpy()
