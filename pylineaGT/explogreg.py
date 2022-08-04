@@ -66,7 +66,6 @@ class Regression():
         t1 = self.init_time
 
         with pyro.plate("lineages", self.L):
-            # rate = pyro.sample("rate", distr.Normal(0., 1))
             fitn = pyro.sample("fitness", distr.Normal(0., .5))
 
             ## TODO improve the limits of the Uniform ?
@@ -128,15 +127,13 @@ class Regression():
 
     def train(self, steps=500, optim=pyro.optim.Adam, lr=0.01, loss_fn=pyro.infer.Trace_ELBO(), \
             regr="exp", p_rate=None, min_steps=50, p=.5, random_state=25):
-        pyro.enable_validation(True)
         
-        ## to clear the param store
+        pyro.enable_validation(True)
+        # to clear the param store
         pyro.get_param_store().__init__()
 
         if random_state is not None:
             pyro.set_rng_seed(random_state)
-            np.random.seed(random_state)
-            torch.manual_seed(random_state)
 
         self._set_regr_type(regr)
         self.p_rate = p_rate
@@ -198,7 +195,6 @@ class Regression():
             return True
         par = self._normalize(par)
         eps = p * self._settings["lr"]
-        # print(eps)
         n = 0
         for ll in range(par[0].shape[0]):
             perc = eps * par[0][ll] # torch.max(torch.tensor(1), par[0][k,t])
@@ -226,7 +222,7 @@ class Regression():
             params[name] = value.clone().detach()
             if return_numpy:
                 params[name] = params[name].numpy()
-        
+
         if return_numpy:
             params["init_time"] = params.get("init_time", self.init_time.clone().detach().numpy())
             params["parent_rate"] = self.p_rate.clone().detach().numpy() if self.p_rate is not None else None
@@ -240,7 +236,7 @@ class Regression():
     def compute_log_likelihood(self):
         if self.exp:
             return self._compute_exp_ll()
-        
+
         if self.log:
             return self._compute_log_ll()
 

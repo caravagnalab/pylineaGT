@@ -3,6 +3,7 @@ from pyclbr import Function
 from tokenize import Double
 from typing import Dict
 from xmlrpc.client import Boolean
+
 import pyro
 import pyro.distributions as distr
 import torch
@@ -13,7 +14,6 @@ from pyro.infer import SVI
 from torch.distributions import constraints
 from sklearn.cluster import KMeans
 from tqdm import trange
-import random
 
 
 class MVNMixtureModel():
@@ -176,7 +176,7 @@ class MVNMixtureModel():
 
     def run_kmeans(self, K):
         removed_idx, data_unq = self.check_input_kmeans()
-        
+
         km = KMeans(n_clusters=K, random_state=self._seed).fit(data_unq.numpy())
         assert km.n_iter_ < km.max_iter
 
@@ -184,6 +184,7 @@ class MVNMixtureModel():
         for rm in sorted(removed_idx.keys()):
             # insert 0 elements to restore the original number of obs
             clusters = np.insert(clusters, rm, 0, 0)
+
         for rm in removed_idx.keys():
             # insert in the repeated elements the correct cluster
             rpt = removed_idx[rm]  # the index of the kept row
@@ -226,9 +227,9 @@ class MVNMixtureModel():
             k_max = k_min + 1
         if k_min == k_max:
             return k_min
-        
+
         k_interval = (k_min, k_max)
-        
+
         scores = torch.zeros(k_interval[1])
         for k in range(k_interval[0], k_interval[1]):
             km = self.run_kmeans(k)

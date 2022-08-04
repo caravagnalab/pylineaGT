@@ -1,5 +1,6 @@
 import pandas as pd
 import pyro
+
 from random import randint
 from .mvnmm import MVNMixtureModel
 
