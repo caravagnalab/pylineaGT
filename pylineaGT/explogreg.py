@@ -34,11 +34,12 @@ class Regression():
         Function to compute the times `t_i` at which the subclone appears in each lineage.
         '''
         t = torch.zeros(self.L)
-        ## for each lineage, I store the index of the first value greater than 0
+        # for each lineage, I store the index of the first value greater than 0
         for ll in range(self.L):
             tmp = self.y[:,ll]
             try: t[ll] = self.x[tmp>11e-20][0]
-            except: t[ll] = torch.tensor(0.)
+            except: t[ll] = torch.max(self.x)
+            # except: t[ll] = torch.tensor(0.)
         
         self.init_time = t.int()
         
