@@ -79,7 +79,7 @@ class Regression():
                 t1 = pyro.sample("init_time", distr.Uniform(1, self.init_time.float()))
 
         with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(30))
+            sigma = pyro.sample("sigma", distr.HalfNormal(5))
 
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
         logits = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate - \
@@ -105,7 +105,7 @@ class Regression():
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
 
         with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(30))
+            sigma = pyro.sample("sigma", distr.HalfNormal(5))
 
         # for each lineage, the pop grows as r*(t-t1), 
         # where t1 is the time the population is first observed
