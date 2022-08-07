@@ -6,7 +6,8 @@ from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
         n_runs=1, steps=500, lr=0.005, p=1, convergence=True, initializ=False,
-        covariance="full", hyperparameters=dict(), show_progr=True, 
+        covariance="full", hyperparameters=dict(), show_progr=True, default_constr=True,
+        sigma_constr_pars={"slope":0.09804862, "intercept":22.09327233}, 
         store_grads=True, store_losses=True, store_params=True, seed=5, init_seed=None):
 
     if init_seed is None:  # init seed is the seed for the params initialization -> specific for each run
@@ -33,9 +34,9 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             # - gradient norms for the parameters
             x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
                 steps=steps, covariance=covariance, lr=lr, p=p, initializ=initializ,
-                hyperparameters=hyperparameters, convergence=convergence, 
-                show_progr=show_progr, store_params=store_params, 
-                seed=seed, init_seed=init_seed[run-1])
+                default_constr=default_constr, sigma_constr_pars=sigma_constr_pars, 
+                hyperparameters=hyperparameters, convergence=convergence, show_progr=show_progr, 
+                store_params=store_params, seed=seed, init_seed=init_seed[run-1])
 
             kk = x_k.params["K"]
 
@@ -54,24 +55,28 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
 
 
 def single_run(k, df, IS=[], columns=[], lineages=[], steps=500, covariance="full", 
-    lr=0.005, p=1, convergence=True, initializ=False, show_progr=True, 
-    hyperparameters=dict(), store_params=False, seed=5, init_seed=1):
+    lr=0.005, p=1, convergence=True, initializ=False, show_progr=True, hyperparameters=dict(), 
+    sigma_constr_pars={"slope":0.09804862, "intercept":22.09327233}, default_constr=True,
+    store_params=False, seed=5, init_seed=1):
 
     pyro.clear_param_store()
     try:
         columns = df.columns[df.columns.str.startswith("cov")].to_list()
         IS = df.IS.to_list()
-        x = MVNMixtureModel(k, data=df[columns], lineages=lineages, IS=IS, columns=columns)
+        x = MVNMixtureModel(k, data=df[columns], lineages=lineages, IS=IS, columns=columns, default_init=default_constr)
     except:
         IS = ["IS.".join(str(i)) for i in range(df.shape[0])]
-        x = MVNMixtureModel(k, data=df, lineages=lineages, IS=IS)
-
+        x = MVNMixtureModel(k, data=df, lineages=lineages, IS=IS, default_init=default_constr)
+    
+    if default_constr:
+        x.set_sigma_constraints(slope=sigma_constr_pars["slope"], intercept=sigma_constr_pars["intercept"])
     for name, value in hyperparameters.items():
         x.set_hyperparameters(name, value)
 
     x.fit(steps=steps, cov_type=covariance, lr=lr, p=p, convergence=convergence, 
         show_progr=show_progr, store_params=store_params, initializ=initializ, 
         seed=seed, init_seed=init_seed)
+
     x.classifier()
 
     return x

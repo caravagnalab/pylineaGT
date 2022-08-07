@@ -17,13 +17,14 @@ from tqdm import trange
 
 
 class MVNMixtureModel():
-    def __init__(self, K, data, IS=[], columns=[], lineages=[]):
+    def __init__(self, K, data, IS=[], columns=[], lineages=[], default_init=True):
         self._set_dataset(data)
         self.IS = np.array(IS)
         self.dimensions = columns # `columns` will be a list of type ["early.MNC", "mid.MNC", "early.Myeloid", "mid.Myeloid"]
         self.lineages = lineages
 
         self.K, self._N, self._T = K, self.dataset.shape[0], self.dataset.shape[1]
+        self.default_init = default_init
         self._initialize_attributes()
         self._initialize_sigma_constraint() 
 
@@ -130,6 +131,21 @@ class MVNMixtureModel():
         It performs a linear regression on the marginal distribution of each dimension and performs 
         a check on the x-intercept, to avoid negative values of y for x in [0,max_cov].
         '''
+
+        if not self.default_init:
+            self._compute_sigma_constraints()
+        
+        else:
+            self.set_sigma_constraints()
+
+
+    def set_sigma_constraints(self, slope=0.09804862, intercept=22.09327233):
+        slope_tns = torch.repeat_interleave(torch.tensor(slope), self._T)
+        intercept_tns = torch.repeat_interleave(torch.tensor(intercept), self._T)
+        self.lm = {"slope":slope_tns, "intercept":intercept_tns}
+
+
+    def _compute_sigma_constraints(self):
         self.lm = dict()
         slope, intercept = torch.zeros((self._T)), torch.zeros((self._T))
         for t in range(self._T):
