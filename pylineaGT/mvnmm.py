@@ -47,14 +47,16 @@ class MVNMixtureModel():
 
     def _initialize_attributes(self):
         self.params = {"N":self._N, "K":self.K, "T":self._T}
+        
         self.init_params = {"N":self._N, "K":self.K, "T":self._T, \
             "sigma":None, "mean":None, "weights":None, \
             "clusters":None, "var_constr":None, "is_computed":None}
+        
         self.hyperparameters = { \
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().max() / 2, \
             # mean and sd for the Normal prior of the variance
-            "var_loc":torch.tensor(55).float(), \
+            "var_loc":torch.tensor(50).float(), \
             "var_scale":torch.tensor(30).float(), \
             "min_var":torch.tensor(5).float(), \
             "eta":torch.tensor(1).float()}
@@ -349,10 +351,10 @@ class MVNMixtureModel():
         '''
         Sigma = torch.zeros((K, self._T, self._T))
         for k in range(K):
-            if self.cov_type == "diag":
+            if self.cov_type == "diag" or self._T == 1:
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
                     sigma_chol).add(torch.eye(self._T))
-            if self.cov_type == "full":
+            if self.cov_type == "full" and self._T > 1:
                 Sigma[k,:,:] = torch.mm(sigma_vector[k,:].diag_embed(), \
                     sigma_chol[k]).add(torch.eye(self._T))
         return Sigma

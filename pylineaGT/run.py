@@ -5,7 +5,7 @@ from random import randint
 from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
-        n_runs=1, steps=500, lr=0.005, p=1, convergence=True, initializ=False,
+        n_runs=1, steps=500, lr=0.005, p=1, convergence=True, initializ=True,
         covariance="full", hyperparameters=dict(), show_progr=True, default_constr=True,
         sigma_constr_pars={"slope":0.09804862, "intercept":22.09327233}, 
         store_grads=True, store_losses=True, store_params=True, seed=5, init_seed=None):
