@@ -26,7 +26,8 @@ class Simulate():
         pyro.set_rng_seed(seed)
 
         self.cov_type = cov_type
-        self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(label)])
+        self.label = label
+        # self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(label)])
 
         self.set_sigma_constraints()
 
@@ -102,6 +103,8 @@ class Simulate():
 
         self.dataset = x
         self.params = {"weights":weights, "mean":mean, "sigma":sigma_vector, "var_constr":var_constr, "z":z}
+
+        self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(self.label)])
 
 
     def _compute_Sigma(self, sigma_chol, sigma_vector, K):
