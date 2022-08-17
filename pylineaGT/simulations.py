@@ -6,10 +6,10 @@ import os
 import pyro
 
 class Simulate():
-    def __init__(self, N=200, T=5, K=15, 
-        mean_loc=400, mean_scale=1500, 
-        var_loc=50, var_scale=30, min_var=5,
-        eta=1, cov_type="full", label="", seed=None):
+    def __init__(self, seed, N=200, T=5, K=15, 
+        mean_loc=500, mean_scale=1000, 
+        var_loc=118, var_scale=130, min_var=5,
+        eta=1, cov_type="full", label=""):
 
         self.settings = {"N":N, "T":T, "K":K, 
             "mean_loc":torch.tensor(mean_loc).float(), 
@@ -18,6 +18,8 @@ class Simulate():
             "var_scale":torch.tensor(var_scale).float(), 
             "min_var":torch.tensor(min_var).float(),
             "eta":torch.tensor(eta).float(),
+            "slope":0.15914, "intercept":23.70988,
+            # "slope":0.09804862, "intercept":22.09327233,
             "seed":seed}
 
         pyro.set_rng_seed(seed)
@@ -28,11 +30,15 @@ class Simulate():
         self.set_sigma_constraints()
 
 
-    def set_sigma_constraints(self, slope=0.09804862, intercept=22.09327233):
+    def set_sigma_constraints(self):
+        slope = self.settings["slope"]
+        intercept = self.settings["intercept"]
         T = self.settings["T"]
         slope_tns = torch.repeat_interleave(torch.tensor(slope), T)
         intercept_tns = torch.repeat_interleave(torch.tensor(intercept), T)
         self.lm = {"slope":slope_tns, "intercept":intercept_tns}
+        self.settings["slope"] = slope_tns
+        self.settings["intercept"] = intercept_tns
 
 
     def generate_dataset(self):
@@ -47,24 +53,24 @@ class Simulate():
         eta = self.settings["eta"]
 
         weights = distr.Dirichlet(torch.ones(K)).sample()
-        
+
         mean = torch.zeros(K,T)
         sigma_vector = torch.zeros(K,T)
         var_constr = torch.zeros(K,T)
-        for k in range(K):
+        
+        for k in range(K):  # for each cluster
             mean[k,:] = distr.Normal(mean_loc, mean_scale).sample(sample_shape=(T,))
             sigma_vector[k,:] = distr.Normal(var_loc, var_scale).sample(sample_shape=(T,))
 
+            # check for negative values
             while torch.any(mean[k,:] < 0):
                 mean[k,:] = distr.Normal(mean_loc, mean_scale).sample(sample_shape=(T,))
 
-            while torch.any(sigma_vector[k,:] < min_var):
-                sigma_vector[k,:] = distr.Normal(var_loc, var_scale).sample(sample_shape=(T,))
-
-        for k in range(K):
             var_constr[k,:] = mean[k,:] * self.lm["slope"] + self.lm["intercept"]
 
-        sigma_vector[sigma_vector > var_constr] = var_constr[sigma_vector > var_constr] - .1
+            # check for negative values
+            while torch.any(sigma_vector[k,:] < min_var) or torch.any(sigma_vector[k,:] > var_constr[k,:]):
+                sigma_vector[k,:] = distr.Normal(var_loc, var_scale).sample(sample_shape=(T,))
 
         if self.cov_type == "diag" or T==1:
             sigma_chol = torch.eye(T) * 1.
@@ -83,7 +89,7 @@ class Simulate():
                 x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
 
         self.dataset = x
-        self.params = {"weights":weights, "mean":mean, "sigma_vector":sigma_vector, "z":z}
+        self.params = {"weights":weights, "mean":mean, "sigma":sigma_vector, "var_constr":var_constr, "z":z}
 
 
     def _compute_Sigma(self, sigma_chol, sigma_vector, K):
@@ -102,48 +108,4 @@ class Simulate():
                     sigma_chol[k]).add(torch.eye(T))
 
         return Sigma
-
-
-    # def _add_noise(self, x):
-    #     noise_loc = self.settings["noise_loc"]
-    #     noise_scale = self.settings["noise_scale"]
-    #     N = self.settings["N"]
-    #     T = self.settings["T"]
-
-    #     noise = torch.normal(mean=torch.full((N,T),noise_loc), std=torch.full((N,T),noise_scale)).abs()
-
-    #     return torch.ceil(x.add_(noise)).int()
-
-    # def run_inference_sim(self, sim_id, n_runs):
-    #     k_interval = [max(self.settings["K"]-5, 1), self.settings["K"]+5]
-        
-    #     for run in range(n_runs):
-    #         new_sim_id = sim_id + "." + str(run)
-    #         new_sim = run_inference(self.dataset, lineages=[], k_interval=k_interval, n_runs=n_runs)
-    #     return inference
-
-
-
-def generate_synthetic_data(N_values, T_values, K_values, n_datasets=1, check_present=True):
-    files_list = [f for f in os.listdir('.') if os.path.isfile(f)]
-
-    seeds = torch.randint(low=0, high=100, size=(n_datasets,))
-
-    for n_df in range(n_datasets):
-        for N in N_values:
-            for T in T_values:
-                for K in K_values:
-                    mean_loc = 50
-                    mean_scale = 500
-                    var_scale = 400
-                    sim = Simulate(N, T, K, mean_loc, mean_scale, var_scale, label=n_df, seed=seeds[n_df])
-
-                    # check if the file is already present
-                    if sim.sim_id+".data.pkl" in files_list and check_present:
-                        continue
-
-                    sim.generate_dataset() 
-                    # save the file in the current directory
-                    with open(sim.sim_id+".data.pkl", 'wb') as sim_file:
-                        pickle.dump(sim, sim_file)
 
