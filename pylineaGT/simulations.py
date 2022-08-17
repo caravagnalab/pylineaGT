@@ -1,4 +1,5 @@
-from .run import run_inference
+from cProfile import label
+from run import run_inference
 import torch
 import pyro.distributions as distr
 import pickle
@@ -54,6 +55,20 @@ class Simulate():
         eta = self.settings["eta"]
 
         weights = distr.Dirichlet(torch.ones(K)).sample()
+        
+        z = torch.zeros((N,), dtype=torch.long)
+        x = torch.zeros((N,T))
+        for n in range(N):
+            z[n] = distr.Categorical(weights).sample()
+
+        self.settings["K"] = K = len(z.unique())
+        labels = z.unique()
+
+        weights = weights[labels]
+        weights = weights / torch.sum(weights)        
+        
+        tmp = {int(k):v for v,k in enumerate(labels)}  # k is the old value, v is the new value
+        z = torch.tensor([tmp[int(z[i])] for i in range(len(z))])
 
         mean = torch.zeros(K,T)
         sigma_vector = torch.zeros(K,T)
@@ -80,11 +95,7 @@ class Simulate():
             sigma_chol = distr.LKJCholesky(T, eta).sample(sample_shape=(K,))
 
         Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
-
-        z = torch.zeros((N,), dtype=torch.long)
-        x = torch.zeros((N,T))
         for n in range(N):
-            z[n] = distr.Categorical(weights).sample()
             x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
             while torch.any(x[n,:] < 0):
                 x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
