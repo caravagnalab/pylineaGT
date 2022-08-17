@@ -61,8 +61,8 @@ class MVNMixtureModel():
             "mean_loc":self.dataset.float().max() / 2, \
             
             # mean and sd for the Normal prior of the variance
-            "var_loc":torch.tensor(100).float(), \
-            "var_scale":torch.tensor(300).float(), \
+            "var_loc":torch.tensor(120).float(), \
+            "var_scale":torch.tensor(130).float(), \
             "min_var":torch.tensor(5).float(), \
             
             "eta":torch.tensor(1).float(), \

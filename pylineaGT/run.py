@@ -66,7 +66,7 @@ def single_run(k, df, IS, columns, lineages, steps, covariance, lr, check_conv, 
         return 0
 
     for name, value in hyperparams.items():
-        x.set_hyperparams(name, value)
+        x.set_hyperparameters(name, value)
 
     x.fit(steps=steps, cov_type=covariance, lr=lr, check_conv=check_conv, p=p,
         default_lm=default_lm, show_progr=show_progr, store_params=store_params, 
