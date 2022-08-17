@@ -1,7 +1,6 @@
 from collections import defaultdict
 from pyclbr import Function
-from tokenize import Double
-from typing import Dict
+from typing import Dict, Tuple
 from xmlrpc.client import Boolean
 
 import pyro
@@ -17,28 +16,33 @@ from tqdm import trange
 
 
 class MVNMixtureModel():
-    def __init__(self, K, data, IS=[], columns=[], lineages=[], default_init=True):
+    def __init__(self, K, data, IS=[], columns=[], lineages=[]):
         self._set_dataset(data)
         self.IS = np.array(IS)
         self.dimensions = columns # `columns` will be a list of type ["early.MNC", "mid.MNC", "early.Myeloid", "mid.Myeloid"]
         self.lineages = lineages
 
         self.K, self._N, self._T = K, self.dataset.shape[0], self.dataset.shape[1]
-        self.default_init = default_init
         self._initialize_attributes()
-        self._initialize_sigma_constraint() 
+
+        try: 
+            assert self.dataset.unique(dim=0).shape[0] >= K
+            self.error = False
+        except: 
+            print("The number of unique observations is smaller than the input number of clusters!")
+            self.error = True
 
 
     def _set_dataset(self, data):
         if isinstance(data, torch.Tensor):
             self.dataset = data.int()
-        else:
+        else:  # convert the dataset to torch.tensor
             try:
-                try: self.dataset = torch.tensor(data.values)
+                try: self.dataset = torch.tensor(data.values)  # if it's a Pandas dataframe
                 except: pass
-                try: self.dataset = torch.tensor(data)
+                try: self.dataset = torch.tensor(data)  # if it's a numpy array
                 except: pass
-            except: pass
+            except: print("The input dataset must be a torch.Tensor, numpy.ndarray or pandas.DataFrame object!")
 
             # to ensure the correct dimensionality
             try: assert len(self.dataset.shape) > 1
@@ -55,11 +59,18 @@ class MVNMixtureModel():
         self.hyperparameters = { \
             "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().max() / 2, \
+            
             # mean and sd for the Normal prior of the variance
-            "var_loc":torch.tensor(50).float(), \
-            "var_scale":torch.tensor(30).float(), \
+            "var_loc":torch.tensor(100).float(), \
+            "var_scale":torch.tensor(300).float(), \
             "min_var":torch.tensor(5).float(), \
-            "eta":torch.tensor(1).float()}
+            
+            "eta":torch.tensor(1).float(), \
+            
+            # slope and intercepts for the variance constraints
+            "slope":0.15914, "intercept":23.70988}
+            # "slope":0.09804862, "intercept":22.09327233}
+
         self._autoguide = False
         self._enumer = "parallel"
 
@@ -87,33 +98,31 @@ class MVNMixtureModel():
         self.hyperparameters[name] = torch.tensor(value).float()
 
 
-    def filter_dataset(self, min_cov=0, n=None, min_ccf=.05, k_interval=(5,25),
+    def filter_dataset(self, min_cov=0, min_frac=.05, k_interval=(5,15), n=None,
             metric="calinski_harabasz_score", seed=5):
         '''
         Function to filter the input dataset.
         - `min_cov` -> hard threshold for each observation. Only the observations with at least a 
         coverage of `thr` across the timepoints are kept.
         - `n` -> number of random observations to draw from the dataset.
-        - `min_ccf` -> percentage of the cumulative distribution that will be used as a threshold 
+        - `min_frac` -> percentage of the cumulative distribution that will be used as a threshold 
         for each timepoint to remove observations with a too low coverage. 
         It will perform a K-means, for `k` in `k_interval`, to search for the best `K` (optimizing 
         the input metric), and performing K-means to discard observations belonging to clusters 
         with the centroid of all timepoints below `5%` of the sum of centroids for all the timepoints.
         - `k_interval` -> interval of `K` values to look for the best `K`.
         - `metric` -> metric used to retrieve the best `K`, among `calinski_harabasz_score` and `silhouette`.
-        - `seed` -> seed value.
+        - `seed` -> seed value used to compute the Kmeans to perform the initial clustering to filter the data.
         '''
-        self._seed = seed
-
         idxs = torch.any(self.dataset >= min_cov, dim=1)
         try: self.IS = self.IS[idxs]
         except: pass
         finally: self.dataset = self.dataset[idxs,]
-        
-        self.dataset, self.IS = self._filter_dataframe_init(min_ccf=min_ccf,
-            k_interval=k_interval, metric=metric)
 
-        if n is not None:  # takes a random sample from the dataset
+        self.dataset, self.IS = self._filter_dataframe_init(min_frac=min_frac,
+            k_interval=k_interval, metric=metric, seed=seed)
+
+        if n is not None:  # takes a random sample of `n` elements from the dataset
             n = min(n, self.dataset.shape[0])
             np.random.seed(seed)
             idx = np.random.randint(self.dataset.shape[0], size=n)
@@ -124,7 +133,6 @@ class MVNMixtureModel():
         self.params["N"] = self._N
         self.init_params["N"] = self._N
         self._initialize_attributes()
-        self._initialize_sigma_constraint()
 
 
     def _initialize_sigma_constraint(self):
@@ -133,27 +141,33 @@ class MVNMixtureModel():
         It performs a linear regression on the marginal distribution of each dimension and performs 
         a check on the x-intercept, to avoid negative values of y for x in [0,max_cov].
         '''
-
-        if not self.default_init:
-            self._compute_sigma_constraints()
-        
-        else:
-            self.set_sigma_constraints()
+        if self._default_lm:
+            return self._set_sigma_constraints()
+        return self._compute_sigma_constraints()
 
 
-    def set_sigma_constraints(self, slope=0.09804862, intercept=22.09327233):
+    def _set_sigma_constraints(self):
+        slope = self.hyperparameters["slope"]
+        intercept = self.hyperparameters["intercept"]
+        if isinstance(slope, torch.Tensor) and isinstance(intercept, torch.Tensor):
+            return {"slope":slope, "intercept":intercept}
+
         slope_tns = torch.repeat_interleave(torch.tensor(slope), self._T)
         intercept_tns = torch.repeat_interleave(torch.tensor(intercept), self._T)
-        self.lm = {"slope":slope_tns, "intercept":intercept_tns}
+        lm = {"slope":slope_tns, "intercept":intercept_tns}
+        
+        self.hyperparameters["slope"] = slope_tns
+        self.hyperparameters["intercept"] = intercept_tns
+        return lm
 
 
     def _compute_sigma_constraints(self):
-        self.lm = dict()
+        lm = dict()
         slope, intercept = torch.zeros((self._T)), torch.zeros((self._T))
         for t in range(self._T):
             xx, yy = np.unique(self.dataset[:,t], return_counts=True)
-            lm = sklearn.linear_model.LinearRegression()
-            fitted = lm.fit(xx.reshape(-1,1), yy.reshape(-1,1))  # eatimate the coefficient of the linear reg
+            lmodel = sklearn.linear_model.LinearRegression()
+            fitted = lmodel.fit(xx.reshape(-1,1), yy.reshape(-1,1))  # eatimate the coefficient of the linear reg
             slope[t] = torch.tensor(float(fitted.coef_[0]))
             intercept[t] = torch.tensor(fitted.intercept_[0])
             
@@ -161,41 +175,74 @@ class MVNMixtureModel():
             if (slope[t] * torch.tensor(max(xx)*1.5) + intercept[t]) <= (max(xx) / 10):
                 intercept[t] = torch.max(-1*( slope[t] * torch.tensor(max(xx)*1.5) ), \
                     torch.tensor(max(xx) / 10))
-        self.lm["slope"], self.lm["intercept"] = slope, intercept
+        lm["slope"], lm["intercept"] = slope, intercept
+
+        self.hyperparameters["slope"] = slope
+        self.hyperparameters["intercept"] = intercept
+        return lm
 
 
-    def _filter_dataframe_init(self, min_ccf=.05, k_interval=(5,15), \
+    def _filter_dataframe_init(self, min_frac, k_interval, seed, \
             metric="calinski_harabasz_score"):
         '''
         Function to filter the input dataset according to the centroid the clusters output
         from a KMeans, with `K` being the best `K` in `k_interval` according to `metric`.
-        - `min_ccf` -> percentage of the cumulative distribution that will be used as a threshold 
+        - `min_frac` -> percentage of the cumulative distribution that will be used as a threshold 
         for each timepoint to remove observations with a too low coverage. 
         It will perform a K-means, for `k` in `k_interval`, to search for the best `K` (optimizing 
         the input metric), and performing K-means to discard observations belonging to clusters 
         with the centroid of all timepoints below `5%` of the sum of centroids for all the timepoints.
         - `k_interval` -> interval of `K` values to look for the best `K`.
         - `metric` -> metric used to retrieve the best `K`, among `calinski_harabasz_score` and `silhouette`.
+        - `seed` -> seed used for the KMeans.
         '''
 
         index_fn = self._find_index_function(metric)
-        N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn)
-
-        km = self.run_kmeans(K)
+        N, K = self.dataset.shape[0], self._find_best_k(k_interval=k_interval, index_fn=index_fn, seed=seed)
+        km = self.run_kmeans(K, seed=seed)
 
         clusters = km.labels_
         ctrs = torch.tensor(km.cluster_centers_).float().detach() + torch.abs(torch.normal(0, 1, (K, self._T)))
-        keep = torch.where((ctrs / ctrs.sum(dim=0) > min_ccf).sum(dim=1) > 0)[0]
+        keep = torch.where((ctrs / ctrs.sum(dim=0) > min_frac).sum(dim=1) > 0)[0]
 
         try: ii = self.IS[np.in1d(np.array(clusters), keep)]
         except: ii = self.IS
         finally: return self.dataset[np.in1d(np.array(clusters), keep)], ii
 
 
-    def run_kmeans(self, K):
+    def _find_index_function(self, index="calinski_harabasz_score"):
+        if index == "calinski_harabasz_score":
+            return sklearn.metrics.calinski_harabasz_score
+        if index == "silhouette":
+            return sklearn.metrics.silhouette_score
+
+
+    def _find_best_k(self, k_interval, seed, index_fn=sklearn.metrics.calinski_harabasz_score):
+        k_min = min(max(k_interval[0], 2), self.dataset.unique(dim=0).shape[0]-1)
+        k_max = min(k_interval[1], self.dataset.unique(dim=0).shape[0]-1)
+
+        if k_min > k_max:
+            k_max = k_min + 1
+        if k_min == k_max:
+            return k_min
+
+        k_interval = (k_min, k_max)
+
+        scores = torch.zeros(k_interval[1])
+        for k in range(k_interval[0], k_interval[1]):
+            km = self.run_kmeans(k, seed=seed)
+            labels = km.labels_
+            real_k = len(np.unique(labels))
+            scores[real_k] = max(scores[real_k], index_fn(self.dataset, labels))
+
+        best_k = scores.argmax()  # best k is the one maximing the calinski score
+        return best_k
+
+
+    def run_kmeans(self, K, seed):
         removed_idx, data_unq = self.check_input_kmeans()
 
-        km = KMeans(n_clusters=K, random_state=self._seed).fit(data_unq.numpy())
+        km = KMeans(n_clusters=K, random_state=seed).fit(data_unq.numpy())
         assert km.n_iter_ < km.max_iter
 
         clusters = km.labels_
@@ -213,6 +260,10 @@ class MVNMixtureModel():
 
 
     def check_input_kmeans(self):
+        '''
+        Function to check the inputs of the Kmeans. There might be a problem when multiple observations 
+        are equal since the Kmeans will keep only a unique copy of each and the others will not be initialized.
+        '''
         a = self.dataset.numpy()
 
         tmp, indexes, count = np.unique(a, axis=0, return_counts=True, return_index=True)
@@ -228,34 +279,6 @@ class MVNMixtureModel():
                 removed_idx[rm] = rpt_idxs[0]
 
         return removed_idx, unq
-
-
-    def _find_index_function(self, index="calinski_harabasz_score"):
-        if index == "calinski_harabasz_score":
-            return sklearn.metrics.calinski_harabasz_score
-        if index == "silhouette":
-            return sklearn.metrics.silhouette_score
-
-
-    def _find_best_k(self, k_interval=(5,20), index_fn=sklearn.metrics.calinski_harabasz_score):
-        k_min = min(max(k_interval[0], 2), self.dataset.unique().shape[0]-1)
-        k_max = min(k_interval[1], self.dataset.unique().shape[0]-1)
-
-        if k_min > k_max:
-            k_max = k_min + 1
-        if k_min == k_max:
-            return k_min
-
-        k_interval = (k_min, k_max)
-
-        scores = torch.zeros(k_interval[1])
-        for k in range(k_interval[0], k_interval[1]):
-            km = self.run_kmeans(k)
-            labels = km.labels_
-            real_k = len(np.unique(labels))
-            scores[real_k] = max(scores[real_k], index_fn(self.dataset, labels))
-        best_k = scores.argmax()
-        return best_k
 
 
     def model(self):
@@ -386,9 +409,19 @@ class MVNMixtureModel():
         return self.init_params
 
 
+    def _initialize_kmeans(self, K, seed):
+        '''
+        Function to find the optimal seed for the initial KMeans, checking the inertia.
+        '''
+        km = self.run_kmeans(K, seed=seed)
+        return km.inertia_, seed
+
+
     def _initialize_centroids(self, K, N):
-        # km = KMeans(n_clusters=K, random_state=self._seed).fit(self.dataset)
-        km = self.run_kmeans(K)
+        if self._init_seed is None:
+            _, self._init_seed = min([self._initialize_kmeans(K, seed) for seed in range(20)], key=lambda x: x[0])
+
+        km = self.run_kmeans(K, seed=self._init_seed)
         self.init_params["clusters"] = torch.from_numpy(km.labels_)
 
         # init the mixing proportions
@@ -404,6 +437,9 @@ class MVNMixtureModel():
 
 
     def _initialize_variance(self, K, ctrs):
+        # set the linear model for the variance constraints
+        self.lm = self._initialize_sigma_constraint()
+
         var = torch.zeros(self.params["K"], self._T)
         var_constr = torch.zeros(self.params["K"], self._T)
 
@@ -440,43 +476,64 @@ class MVNMixtureModel():
         elif self.cov_type == "full" and  self._T > 1:
             sigma_chol = torch.zeros((K, self._T, self._T))
             for k in range(K):
-                sigma_chol[k,:] = distr.LKJCholesky(\
-                    self._T, self.hyperparameters["eta"]).sample()
+                sigma_chol[k,:] = distr.LKJCholesky(self._T, self.hyperparameters["eta"]).sample()
 
         return sigma_chol
 
 
-    def fit(self, steps=500, optim_fn=pyro.optim.Adam, lr=0.005, cov_type="full", \
-            loss_fn=pyro.infer.TraceEnum_ELBO(), convergence=True, initializ=True, \
-            min_steps=1, p=1, store_params=False, show_progr=True, seed=5, init_seed=1):
+    def _initialize_seed(self, optim, elbo, seed):
+        '''
+        Function used to optimize the initialization of the SVI object.
+        '''
+        pyro.set_rng_seed(seed)
+        pyro.get_param_store().clear()
+
+        guide = self.guide()
+        svi = SVI(self.model, guide, optim, elbo) # reset Adam params each seed
+        
+        svi.step()
+        for _ in range(2):
+            loss = svi.step()
+        
+        self.init_params["is_computed"] = False
+        return loss, seed
+
+
+    def fit(self, steps=500, optim_fn=pyro.optim.Adam, loss_fn=pyro.infer.TraceEnum_ELBO(), \
+            lr=0.005, cov_type="full", check_conv=True, p=1,  min_steps=1, default_lm=True, \
+            store_params=False, show_progr=True, seed_optim=True, seed=5, init_seed=None):
         
         pyro.enable_validation(True)
-        pyro.get_param_store().__init__()
 
-        self._settings = {"optim":optim_fn({"lr":lr, "betas": (0.93, 0.999)}), "loss":loss_fn, "lr":lr}
+        self._settings = {"optim":optim_fn({"lr":lr}), "loss":loss_fn, "lr":lr}
         self._is_trained = False
         self._max_iter = steps
         self.cov_type = cov_type
-        self._seed = seed
-        self._init_seed = init_seed
+        self.init_params["is_computed"] = False
+        self._default_lm = default_lm
+        self._seed = None if seed_optim else seed
+        self._init_seed = None if init_seed is None else init_seed
 
+        if seed_optim:
+            # set the guide and initialize the SVI object to minimize the initial loss 
+            # for each seed in the range, it will initialize a global guide with the initialized parameters
+            optim = self._settings["optim"]
+            elbo = self._settings["loss"]
+            _, self._seed = min([self._initialize_seed(optim, elbo, seed) for seed in range(50)], key = lambda x: x[0])
+        
         if self._seed is not None:
             pyro.set_rng_seed(self._seed)
 
-        if initializ:
-            # set the guide and initialize the SVI object to minimize the initial loss 
-            loss, self._seed = min((self._initialize(seed), seed) for seed in range(100))
-            self._initialize(self._seed)
-        else:
-            # set the guide and intialize the SVI object
-            self._global_guide = self.guide()
-            self.svi = SVI(self.model, self._global_guide, \
-                        optim=self._settings["optim"], loss=self._settings["loss"])
-            self.svi.loss(self.model, self._global_guide)
+        pyro.get_param_store().clear()
+        # set the guide and intialize the SVI object
+        self._global_guide = self.guide()
+        self.svi = SVI(self.model, self._global_guide, \
+                    optim=self._settings["optim"], loss=self._settings["loss"])
+        self.svi.step()
 
         losses_grad = self._train(steps=self._max_iter, \
-            convergence=convergence, min_steps=min_steps, \
-            store_params=store_params, p=p, show_progr=show_progr)
+            check_conv=check_conv, p=p, min_steps=min_steps, \
+            store_params=store_params, show_progr=show_progr)
 
         self._is_trained = True
         self.losses_grad_train = losses_grad  # store the losses and the gradients for weights/lambd
@@ -486,19 +543,7 @@ class MVNMixtureModel():
         return
 
 
-    def _initialize(self, seed) -> Double:
-        '''
-        Function used to optimize the initialization of the SVI object.
-        '''
-        pyro.set_rng_seed(seed)
-        pyro.clear_param_store()
-        self._global_guide = self.guide()
-        self.svi = SVI(self.model, self._global_guide, optim=self._settings["optim"], \
-            loss=self._settings["loss"]) 
-        return self.svi.loss(self.model, self._global_guide)
-
-
-    def _train(self, steps, convergence, min_steps, p, show_progr=True, store_params=False):
+    def _train(self, steps, check_conv, min_steps, p, show_progr, store_params):
         '''
         Function to perform the training of the model. \\
         `steps` is the maximum number of steps to be performed. \\
@@ -533,7 +578,7 @@ class MVNMixtureModel():
                         params[k]["step_"+str(step)] = v.clone().detach().numpy()
 
             # gradient_norms = self._reset_params(params=params_step, p=.01, gradient_norms=gradient_norms)
-            if convergence and step >= min_steps:
+            if check_conv and step >= min_steps:
                 mean_conv[0], mean_conv[1] = mean_conv[1], params_step["mean"]
                 sigma_conv[0], sigma_conv[1] = sigma_conv[1], params_step["sigma_vector"]
                 conv = self._convergence(mean_conv, sigma_conv, conv, p=p)
@@ -682,9 +727,11 @@ class MVNMixtureModel():
         params.pop("z_assignments")
         params.pop("z_probs")
         for par in params.keys():
-            if (self.cov_type=="full" and par in ["N", "K", "T", None]) or \
-                (self.cov_type=="diag" and par in ["N", "K", "T", "sigma_chol", None]):
+            if self.cov_type=="full" and par in ["N", "K", "T", None]:
                 continue
+            if (self.cov_type=="diag" or self._T == 1) and par in ["N", "K", "T", "sigma_chol", None]:
+                continue
+            
             params[par] = params[par].index_select(dim=0, index=keep)
 
         params["weights"] = params["weights"] / params["weights"].sum()
