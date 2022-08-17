@@ -490,11 +490,9 @@ class MVNMixtureModel():
 
         guide = self.guide()
         svi = SVI(self.model, guide, optim, elbo) # reset Adam params each seed
-        
-        svi.step()
-        for _ in range(2):
-            loss = svi.step()
-        
+
+        loss = svi.step()
+
         self.init_params["is_computed"] = False
         return loss, seed
 

@@ -18,7 +18,7 @@ class Simulate():
             "var_scale":torch.tensor(var_scale).float(), 
             "min_var":torch.tensor(min_var).float(),
             "eta":torch.tensor(eta).float(),
-            "slope":0.15914, "intercept":23.70988,
+            "slope":torch.tensor(0.15914), "intercept":torch.tensor(23.70988),
             # "slope":0.09804862, "intercept":22.09327233,
             "seed":seed}
 
@@ -33,9 +33,10 @@ class Simulate():
     def set_sigma_constraints(self):
         slope = self.settings["slope"]
         intercept = self.settings["intercept"]
+
         T = self.settings["T"]
-        slope_tns = torch.repeat_interleave(torch.tensor(slope), T)
-        intercept_tns = torch.repeat_interleave(torch.tensor(intercept), T)
+        slope_tns = torch.repeat_interleave(slope, T)
+        intercept_tns = torch.repeat_interleave(intercept, T)
         self.lm = {"slope":slope_tns, "intercept":intercept_tns}
         self.settings["slope"] = slope_tns
         self.settings["intercept"] = intercept_tns
