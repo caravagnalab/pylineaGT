@@ -1,20 +1,13 @@
 import pandas as pd
 import pyro
 
-from random import randint
 from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
-        n_runs=1, steps=500, lr=0.005, p=1, convergence=True, initializ=True,
-        covariance="full", hyperparameters=dict(), show_progr=True, default_constr=True,
-        sigma_constr_pars={"slope":0.09804862, "intercept":22.09327233}, 
-        store_grads=True, store_losses=True, store_params=True, seed=5, init_seed=None):
+        n_runs=1, steps=500, lr=0.005, p=1, check_conv=True, covariance="full", 
+        hyperparams=dict(), default_lm=True, show_progr=True, store_grads=True, 
+        store_losses=True, store_params=True, seed_optim=True, seed=5, init_seed=None):
 
-    if init_seed is None:  # init seed is the seed for the params initialization -> specific for each run
-        init_seed = [randint(1,5) for _ in range(n_runs)]
-        while len(set(init_seed)) != len(init_seed):
-            init_seed = [randint(1,10) for _ in range(n_runs)]
-    
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
     
     losses_df = pd.DataFrame(columns=["K","run","losses"])
@@ -33,14 +26,17 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             # - AIC/BIC/ICL
             # - gradient norms for the parameters
             x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
-                steps=steps, covariance=covariance, lr=lr, p=p, initializ=initializ,
-                default_constr=default_constr, sigma_constr_pars=sigma_constr_pars, 
-                hyperparameters=hyperparameters, convergence=convergence, show_progr=show_progr, 
-                store_params=store_params, seed=seed, init_seed=init_seed[run-1])
+                steps=steps, covariance=covariance, lr=lr, p=p, check_conv=check_conv, 
+                default_lm=default_lm, hyperparams=hyperparams, 
+                show_progr=show_progr, store_params=store_params, 
+                seed_optim=seed_optim, seed=seed, init_seed=init_seed)
+
+            if x_k == 0:
+                continue
 
             kk = x_k.params["K"]
 
-            best_init_seed = init_seed[run-1]
+            best_init_seed = x_k._init_seed
             best_seed = x_k._seed
 
             id = '.'.join([str(k), str(run)])
@@ -54,28 +50,27 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
     return ic_df, losses_df, grads_df, params_df
 
 
-def single_run(k, df, IS=[], columns=[], lineages=[], steps=500, covariance="full", 
-    lr=0.005, p=1, convergence=True, initializ=False, show_progr=True, hyperparameters=dict(), 
-    sigma_constr_pars={"slope":0.09804862, "intercept":22.09327233}, default_constr=True,
-    store_params=False, seed=5, init_seed=1):
+def single_run(k, df, IS, columns, lineages, steps, covariance, lr, check_conv, p, 
+    hyperparams, default_lm, show_progr, store_params, seed_optim, seed, init_seed):
 
     pyro.clear_param_store()
     try:
         columns = df.columns[df.columns.str.startswith("cov")].to_list()
         IS = df.IS.to_list()
-        x = MVNMixtureModel(k, data=df[columns], lineages=lineages, IS=IS, columns=columns, default_init=default_constr)
+        x = MVNMixtureModel(k, data=df[columns], lineages=lineages, IS=IS, columns=columns)
     except:
         IS = ["IS.".join(str(i)) for i in range(df.shape[0])]
-        x = MVNMixtureModel(k, data=df, lineages=lineages, IS=IS, default_init=default_constr)
-    
-    if default_constr:
-        x.set_sigma_constraints(slope=sigma_constr_pars["slope"], intercept=sigma_constr_pars["intercept"])
-    for name, value in hyperparameters.items():
-        x.set_hyperparameters(name, value)
+        x = MVNMixtureModel(k, data=df, lineages=lineages, IS=IS)
 
-    x.fit(steps=steps, cov_type=covariance, lr=lr, p=p, convergence=convergence, 
-        show_progr=show_progr, store_params=store_params, initializ=initializ, 
-        seed=seed, init_seed=init_seed)
+    if x.error:
+        return 0
+
+    for name, value in hyperparams.items():
+        x.set_hyperparams(name, value)
+
+    x.fit(steps=steps, cov_type=covariance, lr=lr, check_conv=check_conv, p=p,
+        default_lm=default_lm, show_progr=show_progr, store_params=store_params, 
+        seed_optim=seed_optim, seed=seed, init_seed=init_seed)
 
     x.classifier()
 
@@ -122,3 +117,5 @@ def compute_ic(model, kk, run, id, init_seed, seed):
     ic_dict["AIC"] = [float(model.compute_ic(method="AIC"))]
     ic_dict["ICL"] = [float(model.compute_ic(method="ICL"))]
     return pd.DataFrame(ic_dict)
+
+
