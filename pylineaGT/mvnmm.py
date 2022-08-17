@@ -68,7 +68,7 @@ class MVNMixtureModel():
             "eta":torch.tensor(1).float(), \
             
             # slope and intercepts for the variance constraints
-            "slope":0.15914, "intercept":23.70988}
+            "slope":torch.tensor(0.15914).float(), "intercept":torch.tensor(23.70988).float()}
             # "slope":0.09804862, "intercept":22.09327233}
 
         self._autoguide = False
@@ -152,8 +152,8 @@ class MVNMixtureModel():
         if isinstance(slope, torch.Tensor) and isinstance(intercept, torch.Tensor):
             return {"slope":slope, "intercept":intercept}
 
-        slope_tns = torch.repeat_interleave(torch.tensor(slope), self._T)
-        intercept_tns = torch.repeat_interleave(torch.tensor(intercept), self._T)
+        slope_tns = torch.repeat_interleave(slope, self._T)
+        intercept_tns = torch.repeat_interleave(intercept, self._T)
         lm = {"slope":slope_tns, "intercept":intercept_tns}
         
         self.hyperparameters["slope"] = slope_tns
