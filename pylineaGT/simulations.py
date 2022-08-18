@@ -5,8 +5,8 @@ import pyro
 
 class Simulate():
     def __init__(self, seed, N=200, T=5, K=15, 
-        mean_loc=500, mean_scale=1000, 
-        var_loc=118, var_scale=130, min_var=5,
+        mean_loc=200, mean_scale=1000, 
+        var_loc=120, var_scale=130, min_var=5,
         eta=1, cov_type="full", label=""):
 
         self.settings = {"N":N, "T":T, "K":K, 
@@ -20,11 +20,8 @@ class Simulate():
             # "slope":0.09804862, "intercept":22.09327233,
             "seed":seed}
 
-        pyro.set_rng_seed(seed)
-
         self.cov_type = cov_type
         self.label = label
-        # self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(label)])
 
         self.set_sigma_constraints()
 
@@ -42,6 +39,8 @@ class Simulate():
 
 
     def generate_dataset(self):
+        pyro.set_rng_seed(self.settings["seed"])
+
         K = self.settings["K"]
         T = self.settings["T"]
         N = self.settings["N"]
@@ -56,14 +55,14 @@ class Simulate():
         
         z = torch.zeros((N,), dtype=torch.long)
         x = torch.zeros((N,T))
-        for n in range(N):
+        for n in pyro.plate("assign", N):
             z[n] = distr.Categorical(weights).sample()
 
         self.settings["K"] = K = len(z.unique())
         labels = z.unique()
 
         weights = weights[labels]
-        weights = weights / torch.sum(weights)        
+        weights = weights / torch.sum(weights) 
         
         tmp = {int(k):v for v,k in enumerate(labels)}  # k is the old value, v is the new value
         z = torch.tensor([tmp[int(z[i])] for i in range(len(z))])
@@ -71,29 +70,34 @@ class Simulate():
         mean = torch.zeros(K,T)
         sigma_vector = torch.zeros(K,T)
         var_constr = torch.zeros(K,T)
+        sigma_chol = torch.zeros((K,T,T))
         
-        for k in range(K):  # for each cluster
-            mean[k,:] = distr.Normal(mean_loc, mean_scale).sample(sample_shape=(T,))
-            sigma_vector[k,:] = distr.Normal(var_loc, var_scale).sample(sample_shape=(T,))
+        for k in pyro.plate("clusters", K):
 
-            # check for negative values
-            while torch.any(mean[k,:] < 0):
-                mean[k,:] = distr.Normal(mean_loc, mean_scale).sample(sample_shape=(T,))
+            for t in pyro.plate("timepoints", T):
+                mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+                # mean[k,t] = distr.Uniform(mean_loc, mean_scale).sample()
+                sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
 
-            var_constr[k,:] = mean[k,:] * self.lm["slope"] + self.lm["intercept"]
+                # check for negative values
+                while mean[k,t] < 0:
+                    mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+                    # mean[k,t] = distr.Uniform(mean_loc, mean_scale).sample()
 
-            # check for negative values
-            while torch.any(sigma_vector[k,:] < min_var) or torch.any(sigma_vector[k,:] > var_constr[k,:]):
-                sigma_vector[k,:] = distr.Normal(var_loc, var_scale).sample(sample_shape=(T,))
+                var_constr[k,t] = mean[k,t] * self.lm["slope"][t] + self.lm["intercept"][t]
+
+                # check for negative values
+                while sigma_vector[k,t] < min_var or sigma_vector[k,t] > var_constr[k,t]:
+                    sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
+            
+            if self.cov_type == "full" and T>1:
+                sigma_chol[k] = distr.LKJCholesky(T, eta).sample()
 
         if self.cov_type == "diag" or T==1:
             sigma_chol = torch.eye(T) * 1.
-        
-        if self.cov_type == "full" and T>1:
-            sigma_chol = distr.LKJCholesky(T, eta).sample(sample_shape=(K,))
 
         Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
-        for n in range(N):
+        for n in pyro.plate("obs", N):
             x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
             while torch.any(x[n,:] < 0):
                 x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
