@@ -1,7 +1,8 @@
-from .run import run_inference
 import torch
 import pyro.distributions as distr
 import pyro
+
+from .run import run_inference
 
 class Simulate():
     def __init__(self, seed, N=200, T=5, K=15, 
@@ -55,17 +56,19 @@ class Simulate():
         
         z = torch.zeros((N,), dtype=torch.long)
         x = torch.zeros((N,T))
-        for n in pyro.plate("assign", N):
-            z[n] = distr.Categorical(weights).sample()
 
-        self.settings["K"] = K = len(z.unique())
-        labels = z.unique()
+        while len(z.unique()) < K:
+            for n in pyro.plate("assign", N):
+                z[n] = distr.Categorical(weights).sample()
 
-        weights = weights[labels]
-        weights = weights / torch.sum(weights) 
+        # self.settings["K"] = K = len(z.unique())
+        # labels = z.unique()
+
+        # weights = weights[labels]
+        # weights = weights / torch.sum(weights) 
         
-        tmp = {int(k):v for v,k in enumerate(labels)}  # k is the old value, v is the new value
-        z = torch.tensor([tmp[int(z[i])] for i in range(len(z))])
+        # tmp = {int(k):v for v,k in enumerate(labels)}  # k is the old value, v is the new value
+        # z = torch.tensor([tmp[int(z[i])] for i in range(len(z))])
 
         mean = torch.zeros(K,T)
         sigma_vector = torch.zeros(K,T)
