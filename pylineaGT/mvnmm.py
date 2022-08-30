@@ -499,7 +499,7 @@ class MVNMixtureModel():
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, loss_fn=pyro.infer.TraceEnum_ELBO(), \
             lr=0.005, cov_type="full", check_conv=True, p=1,  min_steps=1, default_lm=True, \
-            store_params=False, show_progr=True, seed_optim=True, seed=5, init_seed=None):
+            store_params=False, show_progr=True, seed_optim=True, seed=5, init_seed=5):
         
         pyro.enable_validation(True)
 
