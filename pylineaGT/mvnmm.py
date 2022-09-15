@@ -57,7 +57,7 @@ class MVNMixtureModel():
             "clusters":None, "var_constr":None, "is_computed":None}
         
         self.hyperparameters = { \
-            "mean_scale":min(self.dataset.float().var().sqrt(), torch.tensor(1000).float()), \
+            "mean_scale":self.dataset.float().var().sqrt() * 1.5, \
             "mean_loc":self.dataset.float().max() / 2, \
             
             # mean and sd for the Normal prior of the variance
