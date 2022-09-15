@@ -57,18 +57,18 @@ class MVNMixtureModel():
             "clusters":None, "var_constr":None, "is_computed":None}
         
         self.hyperparameters = { \
-            "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
+            "mean_scale":min(self.dataset.float().var().sqrt(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().max() / 2, \
             
             # mean and sd for the Normal prior of the variance
-            "var_loc":torch.tensor(120).float(), \
-            "var_scale":torch.tensor(130).float(), \
+            "var_loc":torch.tensor(140).float(), \
+            "var_scale":torch.tensor(185).float(), \
             "min_var":torch.tensor(5).float(), \
             
             "eta":torch.tensor(1).float(), \
             
             # slope and intercepts for the variance constraints
-            "slope":torch.tensor(0.15914).float(), "intercept":torch.tensor(23.70988).float()}
+            "slope":torch.tensor(0.179).float(), "intercept":torch.tensor(37.21).float()}
             # "slope":0.09804862, "intercept":22.09327233}
 
         self._autoguide = False
