@@ -2,12 +2,11 @@ import torch
 import pyro.distributions as distr
 import pyro
 
-from .run import run_inference
 
 class Simulate():
-    def __init__(self, seed, N=200, T=5, K=15, 
+    def __init__(self, seed, N, T, K, 
         mean_loc=200, mean_scale=1000, 
-        var_loc=120, var_scale=130, min_var=5,
+        var_loc=140, var_scale=185, min_var=5,
         eta=1, cov_type="full", label=""):
 
         self.settings = {"N":N, "T":T, "K":K, 
@@ -17,7 +16,7 @@ class Simulate():
             "var_scale":torch.tensor(var_scale).float(), 
             "min_var":torch.tensor(min_var).float(),
             "eta":torch.tensor(eta).float(),
-            "slope":torch.tensor(0.15914), "intercept":torch.tensor(23.70988),
+            "slope":torch.tensor(0.179), "intercept":torch.tensor(37.21),
             # "slope":0.09804862, "intercept":22.09327233,
             "seed":seed}
 
@@ -79,7 +78,6 @@ class Simulate():
 
             for t in pyro.plate("timepoints", T):
                 mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
-                # mean[k,t] = distr.Uniform(mean_loc, mean_scale).sample()
                 sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
 
                 # check for negative values
@@ -99,6 +97,10 @@ class Simulate():
         if self.cov_type == "diag" or T==1:
             sigma_chol = torch.eye(T) * 1.
 
+        print(mean)
+        mean, _ = self._check_means(mean, sigma_vector)
+        print(mean)
+
         Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
         for n in pyro.plate("obs", N):
             x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
@@ -109,6 +111,72 @@ class Simulate():
         self.params = {"weights":weights, "mean":mean, "sigma":sigma_vector, "var_constr":var_constr, "z":z}
 
         self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(self.label)])
+
+
+
+    def _check_means(self, mean, sigma_vector, to_check=set(), all=True):
+        '''
+        Function to perform a check in the sampled means, to avoid overlapping
+        distributions that by construction will be not possible to distinguish.
+
+        For each timepoint, the function checks the mean value of each component
+        compared to the others, to make it lower (higher) than the lower (upper)
+        tails of the distribution, at level .05.
+        '''
+
+        mean_loc = self.settings["mean_loc"]
+        mean_scale = self.settings["mean_scale"]
+
+        for kk in range(self.settings["K"]):
+            mu = mean[kk,:]
+            rsmpl = False
+
+            for kk2 in range(self.settings["K"]):
+                if kk == kk2: continue
+                
+                if kk not in to_check and not all: continue
+
+                mu_k = mean[kk2,:]
+                sigma_k = sigma_vector[kk2,:]
+
+                resample = self._check_means_k(mu, mu_k, sigma_k)
+
+                while resample:
+                    rsmpl = True
+                    print(to_check)
+                    for tt in pyro.plate("tt2", self.settings["T"]):
+                        mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
+
+                        while mu[tt] < 0:
+                            mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
+
+                    resample = self._check_means_k(mu, mu_k, sigma_k)
+            
+            mean[kk,:] = mu
+            if kk not in to_check and rsmpl: to_check.add(kk)
+            if kk in to_check and not rsmpl: to_check.remove(kk)
+
+        try:
+            while len(to_check) > 0:
+                mean, to_check = self._check_means(mean, sigma_vector, to_check, all=False)
+        except:
+            return mean, to_check
+
+        return mean, to_check
+
+
+
+    def _check_means_k(self, mu, mu_k, sigma_k, alpha=.005):
+        for tt in range(self.settings["T"]):
+            norm = distr.Normal(mu_k[tt], sigma_k[tt])
+
+            lower_q = norm.icdf(torch.tensor(alpha))
+            upper_q = norm.icdf(torch.tensor(1-alpha))
+
+            if mu[tt] < lower_q or mu[tt] > upper_q:
+                return False
+
+        return True
 
 
     def _compute_Sigma(self, sigma_chol, sigma_vector, K):
