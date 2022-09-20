@@ -396,7 +396,7 @@ class MVNMixtureModel():
 
             ctrs = self._initialize_centroids(K, N)
             var, var_constr = self._initialize_variance(K, ctrs)
-            sigma_chol = self._initialize_sigma_chol(K)
+            sigma_chol = self._initialize_sigma_chol(K, var)
             Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
 
             self.init_params["mean"] = ctrs
@@ -445,7 +445,7 @@ class MVNMixtureModel():
         var_constr = torch.zeros(self.params["K"], self._T)
 
         for cl in torch.unique(self.init_params["clusters"]):
-            var[cl,:] = torch.var( self.dataset[ \
+            var[cl,:] = torch.std( self.dataset[ \
                 torch.where(self.init_params["clusters"]==cl) ].float(), \
                 dim=0, unbiased=False)
             var_constr[cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
@@ -470,28 +470,38 @@ class MVNMixtureModel():
         return var, var_constr
 
 
-    def _initialize_sigma_chol(self, K):
+    def _initialize_sigma_chol(self, K, sd):
         if self.cov_type == "diag" or self._T == 1:
             sigma_chol = torch.eye(self._T) * 1.
         
         elif self.cov_type == "full" and  self._T > 1:
             sigma_chol = torch.zeros((K, self._T, self._T))
             for cl in range(K):
+                sigma_chol[cl,:] = distr.LKJCholesky(self._T, self.hyperparameters["eta"]).sample()
 
-                corr = torch.zeros(self._T, self._T)
-                data = self.dataset[ \
-                    torch.where(self.init_params["clusters"]==cl) ].float()
+            # sigma_chol = torch.zeros((K, self._T, self._T))
+            # for cl in range(K):
 
-                if data.shape[0] == 1:
-                    sigma_chol[cl,:] = torch.linalg.cholesky(torch.eye(self._T))
-                    print(sigma_chol[cl,:])
-                    continue
+            #     # filter only the cluster's observations
+            #     data = self.dataset[ \
+            #         torch.where(self.init_params["clusters"]==cl) ].float()
 
-                full_corr = torch.corrcoef(data.transpose(dim0=1, dim1=0)).nan_to_num()
-                print(full_corr)
+            #     cov = torch.cov(data.t())
+            #     corr = torch.zeros_like(cov)
 
-                sigma_chol[cl,:] = torch.linalg.cholesky(full_corr)
-                print(torch.linalg.cholesky(full_corr))
+            #     if data.shape[0] == 1:
+            #         print("INSIDE IF")
+            #         sigma_chol[cl,:] = torch.cholesky(torch.eye(self._T), upper=False)
+            #         continue
+
+            #     for t1 in range(self._T):
+            #         for t2 in range(self._T):
+            #             denom = torch.max(torch.tensor(1e-5), sd[cl,t1] * sd[cl,t2])
+            #             corr[t1,t2] = cov[t1,t2] / denom
+
+            #     print(corr[10:,10:])
+
+            #     sigma_chol[cl,:] = torch.linalg.cholesky(torch.mm(corr, corr.t()).add(self._T))
 
         return sigma_chol
 
@@ -506,7 +516,7 @@ class MVNMixtureModel():
         guide = self.guide()
         svi = SVI(self.model, guide, optim, elbo) # reset Adam params each seed
 
-        loss = svi.step()
+        loss = svi.loss(self.model, guide)
 
         self.init_params["is_computed"] = False
         return loss, seed
