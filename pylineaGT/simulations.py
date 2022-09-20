@@ -83,7 +83,6 @@ class Simulate():
                 # check for negative values
                 while mean[k,t] < 0:
                     mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
-                    # mean[k,t] = distr.Uniform(mean_loc, mean_scale).sample()
 
                 var_constr[k,t] = mean[k,t] * self.lm["slope"][t] + self.lm["intercept"][t]
 
@@ -97,9 +96,7 @@ class Simulate():
         if self.cov_type == "diag" or T==1:
             sigma_chol = torch.eye(T) * 1.
 
-        print(mean)
         mean, _ = self._check_means(mean, sigma_vector)
-        print(mean)
 
         Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
         for n in pyro.plate("obs", N):
@@ -108,7 +105,8 @@ class Simulate():
                 x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
 
         self.dataset = x
-        self.params = {"weights":weights, "mean":mean, "sigma":sigma_vector, "var_constr":var_constr, "z":z}
+        self.params = {"weights":weights, "mean":mean, "sigma":sigma_vector, \
+            "var_constr":var_constr, "sigma_chol":sigma_chol, "z":z}
 
         self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(self.label)])
 
@@ -143,7 +141,6 @@ class Simulate():
 
                 while resample:
                     rsmpl = True
-                    print(to_check)
                     for tt in pyro.plate("tt2", self.settings["T"]):
                         mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
 

@@ -1,3 +1,4 @@
+from cmath import nan
 from collections import defaultdict
 from pyclbr import Function
 from typing import Dict, Tuple
@@ -475,8 +476,22 @@ class MVNMixtureModel():
         
         elif self.cov_type == "full" and  self._T > 1:
             sigma_chol = torch.zeros((K, self._T, self._T))
-            for k in range(K):
-                sigma_chol[k,:] = distr.LKJCholesky(self._T, self.hyperparameters["eta"]).sample()
+            for cl in range(K):
+
+                corr = torch.zeros(self._T, self._T)
+                data = self.dataset[ \
+                    torch.where(self.init_params["clusters"]==cl) ].float()
+
+                if data.shape[0] == 1:
+                    sigma_chol[cl,:] = torch.linalg.cholesky(torch.eye(self._T))
+                    print(sigma_chol[cl,:])
+                    continue
+
+                full_corr = torch.corrcoef(data.transpose(dim0=1, dim1=0)).nan_to_num()
+                print(full_corr)
+
+                sigma_chol[cl,:] = torch.linalg.cholesky(full_corr)
+                print(torch.linalg.cholesky(full_corr))
 
         return sigma_chol
 
