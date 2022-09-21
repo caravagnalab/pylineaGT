@@ -4,10 +4,9 @@ import pyro
 
 
 class Simulate():
-    def __init__(self, seed, N, T, K, 
-        mean_loc=200, mean_scale=1000, 
-        var_loc=110, var_scale=195, min_var=5,
-        eta=1, cov_type="full", label=""):
+    def __init__(self, seed, N, T, K, mean_loc=400, mean_scale=1000, 
+        var_loc=110, var_scale=195, min_var=5, eta=1, cov_type="full",
+        label="", max_iter=100):
 
         self.settings = {"N":N, "T":T, "K":K, 
             "mean_loc":torch.tensor(mean_loc).float(), 
@@ -20,6 +19,8 @@ class Simulate():
             "intercept":torch.tensor(24.24).float(),
             # "slope":0.09804862, "intercept":22.09327233,
             "seed":seed}
+
+        self._max_iter = max_iter
 
         self.cov_type = cov_type
         self.label = label
@@ -112,8 +113,7 @@ class Simulate():
         self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(self.label)])
 
 
-
-    def _check_means(self, mean, sigma_vector, to_check=set(), all=True):
+    def _check_means(self, mean, sigma_vector, to_check=set(), all=True, n=0):
         '''
         Function to perform a check in the sampled means, to avoid overlapping
         distributions that by construction will be not possible to distinguish.
@@ -122,6 +122,9 @@ class Simulate():
         compared to the others, to make it lower (higher) than the lower (upper)
         tails of the distribution, at level .05.
         '''
+
+        if n == self._max_iter:
+            return mean, list()
 
         mean_loc = self.settings["mean_loc"]
         mean_scale = self.settings["mean_scale"]
@@ -132,39 +135,31 @@ class Simulate():
 
             for kk2 in range(self.settings["K"]):
                 if kk == kk2: continue
-                
                 if kk not in to_check and not all: continue
 
                 mu_k = mean[kk2,:]
                 sigma_k = sigma_vector[kk2,:]
-
                 resample = self._check_means_k(mu, mu_k, sigma_k)
-
                 while resample:
                     rsmpl = True
-                    for tt in pyro.plate("tt2", self.settings["T"]):
+                    for tt in pyro.plate("tt2", self.settings["T"]): 
                         mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
-
-                        while mu[tt] < 0:
-                            mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
+                        while mu[tt] < 0: mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
 
                     resample = self._check_means_k(mu, mu_k, sigma_k)
-            
+
             mean[kk,:] = mu
             if kk not in to_check and rsmpl: to_check.add(kk)
             if kk in to_check and not rsmpl: to_check.remove(kk)
 
-        try:
-            while len(to_check) > 0:
-                mean, to_check = self._check_means(mean, sigma_vector, to_check, all=False)
-        except:
-            return mean, to_check
+        while len(to_check) > 0:
+            mean, to_check = self._check_means(mean, sigma_vector, to_check, all=False, n=n+1)
 
         return mean, to_check
 
 
 
-    def _check_means_k(self, mu, mu_k, sigma_k, alpha=.005):
+    def _check_means_k(self, mu, mu_k, sigma_k, alpha=.01):
         for tt in range(self.settings["T"]):
             norm = distr.Normal(mu_k[tt], sigma_k[tt])
 
