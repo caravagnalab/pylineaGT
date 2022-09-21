@@ -58,18 +58,20 @@ class MVNMixtureModel():
             "clusters":None, "var_constr":None, "is_computed":None}
         
         self.hyperparameters = { \
-            "mean_scale":self.dataset.float().var().sqrt() * 1.5, \
+            "mean_scale":self.dataset.float().std(dim=0).max() * 1.5, \
+            # "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().max() / 2, \
             
             # mean and sd for the Normal prior of the variance
-            "var_loc":torch.tensor(140).float(), \
-            "var_scale":torch.tensor(185).float(), \
+            "var_loc":torch.tensor(110).float(), \
+            "var_scale":torch.tensor(195).float(), \
             "min_var":torch.tensor(5).float(), \
             
             "eta":torch.tensor(1).float(), \
             
             # slope and intercepts for the variance constraints
-            "slope":torch.tensor(0.179).float(), "intercept":torch.tensor(37.21).float()}
+            "slope":torch.tensor(0.1725).float(), \
+            "intercept":torch.tensor(24.34).float()}
             # "slope":0.09804862, "intercept":22.09327233}
 
         self._autoguide = False
@@ -396,7 +398,7 @@ class MVNMixtureModel():
 
             ctrs = self._initialize_centroids(K, N)
             var, var_constr = self._initialize_variance(K, ctrs)
-            sigma_chol = self._initialize_sigma_chol(K, var)
+            sigma_chol = self._initialize_sigma_chol(K)
             Sigma = self.compute_Sigma(sigma_chol=sigma_chol, sigma_vector=var, K=K)
 
             self.init_params["mean"] = ctrs
@@ -414,13 +416,16 @@ class MVNMixtureModel():
         '''
         Function to find the optimal seed for the initial KMeans, checking the inertia.
         '''
+
         km = self.run_kmeans(K, seed=seed)
-        return km.inertia_, seed
+        # score = sklearn.metrics.calinski_harabasz_score(self.dataset, km.labels_)
+        # return score, seed
+        return np.round(km.inertia_, 3), seed
 
 
     def _initialize_centroids(self, K, N):
         if self._init_seed is None:
-            _, self._init_seed = min([self._initialize_kmeans(K, seed) for seed in range(20)], key=lambda x: x[0])
+            _, self._init_seed = min([self._initialize_kmeans(K, seed) for seed in range(10)], key=lambda x: x[0])
 
         km = self.run_kmeans(K, seed=self._init_seed)
         self.init_params["clusters"] = torch.from_numpy(km.labels_)
@@ -445,10 +450,11 @@ class MVNMixtureModel():
         var_constr = torch.zeros(self.params["K"], self._T)
 
         for cl in torch.unique(self.init_params["clusters"]):
-            var[cl,:] = torch.std( self.dataset[ \
+            var[cl,:] = torch.var( self.dataset[ \
                 torch.where(self.init_params["clusters"]==cl) ].float(), \
                 dim=0, unbiased=False)
             var_constr[cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
+            var_constr[cl,:] = var_constr[cl,:] * 1.5
 
         # add gaussian noise to the variance
         var += torch.abs(torch.normal(0, 1, (K, self._T)))
@@ -470,7 +476,7 @@ class MVNMixtureModel():
         return var, var_constr
 
 
-    def _initialize_sigma_chol(self, K, sd):
+    def _initialize_sigma_chol(self, K):
         if self.cov_type == "diag" or self._T == 1:
             sigma_chol = torch.eye(self._T) * 1.
         
@@ -524,7 +530,7 @@ class MVNMixtureModel():
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, loss_fn=pyro.infer.TraceEnum_ELBO(), \
             lr=0.005, cov_type="full", check_conv=True, p=1,  min_steps=1, default_lm=True, \
-            store_params=False, show_progr=True, seed_optim=True, seed=5, init_seed=5):
+            store_params=False, show_progr=True, seed_optim=True, seed=5, init_seed=None):
         
         pyro.enable_validation(True)
 

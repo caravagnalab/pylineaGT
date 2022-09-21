@@ -9,13 +9,13 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
         store_losses=True, store_params=True, seed_optim=True, seed=5, init_seed=None):
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
-    
+
     losses_df = pd.DataFrame(columns=["K","run","losses"])
     losses_df.losses = losses_df.losses.astype("object")
-    
+
     grads_df = pd.DataFrame(columns=["K","run","param","grad_norm"])
     grads_df.grad_norm = grads_df.grad_norm.astype("object")
-    
+
     params_df = pd.DataFrame(columns=["K","run","param","params_values"])
     params_df.params_values = params_df.params_values.astype("object")
 
@@ -46,7 +46,7 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)  # list
             
             ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)
-
+    
     return ic_df, losses_df, grads_df, params_df
 
 
