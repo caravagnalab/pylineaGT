@@ -6,7 +6,7 @@ import pyro
 class Simulate():
     def __init__(self, seed, N, T, K, 
         mean_loc=200, mean_scale=1000, 
-        var_loc=140, var_scale=185, min_var=5,
+        var_loc=110, var_scale=195, min_var=5,
         eta=1, cov_type="full", label=""):
 
         self.settings = {"N":N, "T":T, "K":K, 
@@ -16,7 +16,8 @@ class Simulate():
             "var_scale":torch.tensor(var_scale).float(), 
             "min_var":torch.tensor(min_var).float(),
             "eta":torch.tensor(eta).float(),
-            "slope":torch.tensor(0.179), "intercept":torch.tensor(37.21),
+            "slope":torch.tensor(2.99).float(), \
+            "intercept":torch.tensor(11.182).float(),
             # "slope":0.09804862, "intercept":22.09327233,
             "seed":seed}
 

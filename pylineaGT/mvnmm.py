@@ -58,7 +58,7 @@ class MVNMixtureModel():
             "clusters":None, "var_constr":None, "is_computed":None}
         
         self.hyperparameters = { \
-            "mean_scale":self.dataset.float().std(dim=0).max() * 1.5, \
+            "mean_scale":self.dataset.float().var(dim=0).max(), \
             # "mean_scale":min(self.dataset.float().var(), torch.tensor(1000).float()), \
             "mean_loc":self.dataset.float().max() / 2, \
             
@@ -70,8 +70,8 @@ class MVNMixtureModel():
             "eta":torch.tensor(1).float(), \
             
             # slope and intercepts for the variance constraints
-            "slope":torch.tensor(0.1725).float(), \
-            "intercept":torch.tensor(24.34).float()}
+            "slope":torch.tensor(0.299).float(), \
+            "intercept":torch.tensor(11.182).float()}
             # "slope":0.09804862, "intercept":22.09327233}
 
         self._autoguide = False
@@ -454,7 +454,7 @@ class MVNMixtureModel():
                 torch.where(self.init_params["clusters"]==cl) ].float(), \
                 dim=0, unbiased=False)
             var_constr[cl,:] = ctrs[cl,:] * self.lm["slope"] + self.lm["intercept"]
-            var_constr[cl,:] = var_constr[cl,:] * 1.5
+            # var_constr[cl,:] = var_constr[cl,:] * 1.5
 
         # add gaussian noise to the variance
         var += torch.abs(torch.normal(0, 1, (K, self._T)))
