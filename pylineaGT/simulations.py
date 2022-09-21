@@ -16,8 +16,8 @@ class Simulate():
             "var_scale":torch.tensor(var_scale).float(), 
             "min_var":torch.tensor(min_var).float(),
             "eta":torch.tensor(eta).float(),
-            "slope":torch.tensor(2.99).float(), \
-            "intercept":torch.tensor(11.182).float(),
+            "slope":torch.tensor(0.17).float(), \
+            "intercept":torch.tensor(24.24).float(),
             # "slope":0.09804862, "intercept":22.09327233,
             "seed":seed}
 
