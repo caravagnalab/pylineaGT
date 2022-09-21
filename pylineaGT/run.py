@@ -116,6 +116,9 @@ def compute_ic(model, kk, run, id, init_seed, seed):
     ic_dict["BIC"] = [float(model.compute_ic(method="BIC"))]
     ic_dict["AIC"] = [float(model.compute_ic(method="AIC"))]
     ic_dict["ICL"] = [float(model.compute_ic(method="ICL"))]
+
+    # print(ic_dict["BIC"])
+
     return pd.DataFrame(ic_dict)
 
 

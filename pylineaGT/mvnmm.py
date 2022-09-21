@@ -70,8 +70,10 @@ class MVNMixtureModel():
             "eta":torch.tensor(1).float(), \
             
             # slope and intercepts for the variance constraints
-            "slope":torch.tensor(0.299).float(), \
-            "intercept":torch.tensor(11.182).float()}
+            # "slope":torch.tensor(0.299).float(), \
+            # "intercept":torch.tensor(11.182).float()}
+            "slope":torch.tensor(0.17).float(), \
+            "intercept":torch.tensor(24.34).float()}
             # "slope":0.09804862, "intercept":22.09327233}
 
         self._autoguide = False
@@ -522,10 +524,10 @@ class MVNMixtureModel():
         guide = self.guide()
         svi = SVI(self.model, guide, optim, elbo) # reset Adam params each seed
 
-        loss = svi.loss(self.model, guide)
+        loss = svi.step()
 
         self.init_params["is_computed"] = False
-        return loss, seed
+        return np.round(loss, 3), seed
 
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, loss_fn=pyro.infer.TraceEnum_ELBO(), \
