@@ -614,7 +614,7 @@ class MVNMixtureModel():
                 sigma_conv[0], sigma_conv[1] = sigma_conv[1], params_step["sigma_vector"]
                 conv = self._convergence(mean_conv, sigma_conv, conv, p=p)
                 # conv = self._convergence_grads(gradient_norms, conv)
-                if conv == 5:
+                if conv == 10:
                     if show_progr:
                         t.set_description("ELBO %f" % elb)
                         t.reset(total=step)

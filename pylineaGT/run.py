@@ -4,9 +4,10 @@ import pyro
 from .mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
-        n_runs=1, steps=500, lr=0.005, p=1, check_conv=True, covariance="full", 
-        hyperparams=dict(), default_lm=True, show_progr=True, store_grads=True, 
-        store_losses=True, store_params=True, seed_optim=True, seed=5, init_seed=None):
+        n_runs=1, steps=500, lr=0.005, p=1, check_conv=True, min_steps=20,
+        covariance="full", hyperparams=dict(), default_lm=True, show_progr=True, 
+        store_grads=True, store_losses=True, store_params=True, seed_optim=True, 
+        seed=5, init_seed=None):
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
 
@@ -27,7 +28,7 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             # - gradient norms for the parameters
             x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
                 steps=steps, covariance=covariance, lr=lr, p=p, check_conv=check_conv, 
-                default_lm=default_lm, hyperparams=hyperparams, 
+                min_steps=min_steps, default_lm=default_lm, hyperparams=hyperparams, 
                 show_progr=show_progr, store_params=store_params, 
                 seed_optim=seed_optim, seed=seed, init_seed=init_seed)
 
@@ -50,7 +51,7 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
     return ic_df, losses_df, grads_df, params_df
 
 
-def single_run(k, df, IS, columns, lineages, steps, covariance, lr, check_conv, p, 
+def single_run(k, df, IS, columns, lineages, steps, covariance, lr, check_conv, min_steps, p, 
     hyperparams, default_lm, show_progr, store_params, seed_optim, seed, init_seed):
 
     pyro.clear_param_store()
@@ -69,8 +70,8 @@ def single_run(k, df, IS, columns, lineages, steps, covariance, lr, check_conv, 
         x.set_hyperparameters(name, value)
 
     x.fit(steps=steps, cov_type=covariance, lr=lr, check_conv=check_conv, p=p,
-        default_lm=default_lm, show_progr=show_progr, store_params=store_params, 
-        seed_optim=seed_optim, seed=seed, init_seed=init_seed)
+        min_steps=min_steps, default_lm=default_lm, show_progr=show_progr, 
+        store_params=store_params, seed_optim=seed_optim, seed=seed, init_seed=init_seed)
 
     x.classifier()
 
