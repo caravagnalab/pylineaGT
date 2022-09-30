@@ -1,16 +1,19 @@
+from os import remove
+from typing import overload
+from xml.sax.handler import all_properties
 import torch
 import pyro.distributions as distr
 import pyro
 
 
 class Simulate():
-    def __init__(self, seed, N, T, K, mean_loc=400, mean_scale=1000, 
-        var_loc=110, var_scale=195, min_var=5, eta=1, cov_type="full",
+    def __init__(self, seed, N, T, K, max_value=6000, 
+        var_loc=110, var_scale=195, min_var=20, eta=1, cov_type="full",
         label="", max_iter=100):
 
         self.settings = {"N":N, "T":T, "K":K, 
-            "mean_loc":torch.tensor(mean_loc).float(), 
-            "mean_scale":torch.tensor(mean_scale).float(),
+            # "mean_loc":torch.tensor(mean_loc).float(), 
+            "max_value":torch.tensor(max_value).float(),
             "var_loc":torch.tensor(var_loc).float(), 
             "var_scale":torch.tensor(var_scale).float(), 
             "min_var":torch.tensor(min_var).float(),
@@ -46,8 +49,8 @@ class Simulate():
         K = self.settings["K"]
         T = self.settings["T"]
         N = self.settings["N"]
-        mean_scale = self.settings["mean_scale"]
-        mean_loc = self.settings["mean_loc"]
+        max_value = self.settings["max_value"]
+        # mean_loc = self.settings["mean_loc"]
         var_loc = self.settings["var_loc"]
         var_scale = self.settings["var_scale"]
         min_var = self.settings["min_var"]
@@ -62,15 +65,6 @@ class Simulate():
             for n in pyro.plate("assign", N):
                 z[n] = distr.Categorical(weights).sample()
 
-        # self.settings["K"] = K = len(z.unique())
-        # labels = z.unique()
-
-        # weights = weights[labels]
-        # weights = weights / torch.sum(weights) 
-        
-        # tmp = {int(k):v for v,k in enumerate(labels)}  # k is the old value, v is the new value
-        # z = torch.tensor([tmp[int(z[i])] for i in range(len(z))])
-
         mean = torch.zeros(K,T)
         sigma_vector = torch.zeros(K,T)
         var_constr = torch.zeros(K,T)
@@ -79,12 +73,13 @@ class Simulate():
         for k in pyro.plate("clusters", K):
 
             for t in pyro.plate("timepoints", T):
-                mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+                mean[k,t] = distr.Uniform(0, max_value).sample()
+                # mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
                 sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
 
                 # check for negative values
-                while mean[k,t] < 0:
-                    mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+                # while mean[k,t] < 0:
+                #     mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
 
                 var_constr[k,t] = mean[k,t] * self.lm["slope"][t] + self.lm["intercept"][t]
 
@@ -98,7 +93,7 @@ class Simulate():
         if self.cov_type == "diag" or T==1:
             sigma_chol = torch.eye(T) * 1.
 
-        mean, _ = self._check_means(mean, sigma_vector)
+        mean = self._check_means(mean, sigma_vector)
 
         Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
         for n in pyro.plate("obs", N):
@@ -113,60 +108,66 @@ class Simulate():
         self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(self.label)])
 
 
-    def _check_means(self, mean, sigma_vector, to_check=set(), all=True, n=0):
-        '''
-        Function to perform a check in the sampled means, to avoid overlapping
-        distributions that by construction will be not possible to distinguish.
 
-        For each timepoint, the function checks the mean value of each component
-        compared to the others, to make it lower (higher) than the lower (upper)
-        tails of the distribution, at level .05.
+    def _check_means(self, mean, sigma_vector, alpha=.1, n=1):
         '''
+        Function to perform a check in the sampled means, to avoid overlapping 
+        distributions that by construction can't be distinguished.
+        '''
+
+        overlap = False
 
         if n == self._max_iter:
-            return mean, list()
+            print("MAX ITERATION")
+            return mean
 
-        mean_loc = self.settings["mean_loc"]
-        mean_scale = self.settings["mean_scale"]
+        max_value = self.settings["max_value"]
 
-        for kk in range(self.settings["K"]):
-            mu = mean[kk,:]
-            rsmpl = False
+        for kk1 in range(self.settings["K"]):
+            mu1 = mean[kk1,:]
+            sigma1 = sigma_vector[kk1,:]
 
-            for kk2 in range(self.settings["K"]):
-                if kk == kk2: continue
-                if kk not in to_check and not all: continue
+            for kk2 in range(kk1+1, self.settings["K"]):
 
-                mu_k = mean[kk2,:]
-                sigma_k = sigma_vector[kk2,:]
-                resample = self._check_means_k(mu, mu_k, sigma_k)
+                mu2 = mean[kk2,:]
+                sigma2 = sigma_vector[kk2,:]
+
+                resample = self._do_resample(mu1, sigma1, mu2, sigma2, alpha=alpha)
+
                 while resample:
-                    rsmpl = True
-                    for tt in pyro.plate("tt2", self.settings["T"]): 
-                        mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
-                        while mu[tt] < 0: mu[tt] = distr.Normal(mean_loc, mean_scale).sample()
+                    for tt in pyro.plate("time", self.settings["T"]):
+                        mu2[tt] = distr.Uniform(0, max_value).sample()
+                        resample = self._do_resample(mu1, sigma1, mu2, sigma2, alpha=alpha)
+                        if not resample: break
 
-                    resample = self._check_means_k(mu, mu_k, sigma_k)
+                mean[kk2,:] = mu2
+                
+                # check on the previously 
+                for kk_tmp in range(kk2):
+                    tmp_overlap = self._do_resample(mean[kk_tmp,:], sigma_vector[kk_tmp,:], mu2, sigma2)
 
-            mean[kk,:] = mu
-            if kk not in to_check and rsmpl: to_check.add(kk)
-            if kk in to_check and not rsmpl: to_check.remove(kk)
+                    if tmp_overlap:
+                        overlap = True
 
-        while len(to_check) > 0:
-            mean, to_check = self._check_means(mean, sigma_vector, to_check, all=False, n=n+1)
+        while overlap:
+            return self._check_means(mean, sigma_vector, alpha, n=n+1)
 
-        return mean, to_check
-
+        return mean
 
 
-    def _check_means_k(self, mu, mu_k, sigma_k, alpha=.01):
+    def _do_resample(self, mu, sigma, mu_k, sigma_k, alpha=.4):
+        # if they are separated even only in one timepoints, I do not need to resample
         for tt in range(self.settings["T"]):
-            norm = distr.Normal(mu_k[tt], sigma_k[tt])
+            norm1 = distr.Normal(mu_k[tt], sigma_k[tt])
+            norm2 = distr.Normal(mu[tt], sigma[tt])
 
-            lower_q = norm.icdf(torch.tensor(alpha))
-            upper_q = norm.icdf(torch.tensor(1-alpha))
+            lower_q1 = norm1.icdf(torch.tensor(alpha))
+            upper_q1 = norm1.icdf(torch.tensor(1-alpha))
 
-            if mu[tt] < lower_q or mu[tt] > upper_q:
+            lower_q2 = norm2.icdf(torch.tensor(alpha))
+            upper_q2 = norm2.icdf(torch.tensor(1-alpha))
+
+            if (lower_q1 > upper_q2) or (upper_q1 < lower_q2):
                 return False
 
         return True
