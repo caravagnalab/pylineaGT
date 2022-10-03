@@ -9,7 +9,7 @@ import pyro
 class Simulate():
     def __init__(self, seed, N, T, K, max_value=6000, 
         var_loc=110, var_scale=195, min_var=20, eta=1, cov_type="full",
-        label="", max_iter=100):
+        label="", max_iter=100, alpha=.3):
 
         self.settings = {"N":N, "T":T, "K":K, 
             # "mean_loc":torch.tensor(mean_loc).float(), 
@@ -21,7 +21,7 @@ class Simulate():
             "slope":torch.tensor(0.17).float(), \
             "intercept":torch.tensor(24.24).float(),
             # "slope":0.09804862, "intercept":22.09327233,
-            "seed":seed}
+            "seed":seed, "alpha":alpha}
 
         self._max_iter = max_iter
 
@@ -123,7 +123,7 @@ class Simulate():
 
 
 
-    def _check_means(self, mean, sigma_vector, alpha=.3, n=1):
+    def _check_means(self, mean, sigma_vector, n=1):
         '''
         Function to perform a check in the sampled means, to avoid overlapping 
         distributions that by construction can't be distinguished.
@@ -151,7 +151,7 @@ class Simulate():
                 mu2 = mean[kk2,:]
                 sigma2 = sigma_vector[kk2,:]
 
-                resample = self._do_resample(mu1, sigma1, mu2, sigma2, alpha=alpha)
+                resample = self._do_resample(mu1, sigma1, mu2, sigma2)
 
                 while resample:
                     for tt in pyro.plate("time", self.settings["T"]):
@@ -161,7 +161,7 @@ class Simulate():
 
                         sigma2[sigma2 < min_var] = min_var
 
-                        resample = self._do_resample(mu1, sigma1, mu2, sigma2, alpha=alpha)
+                        resample = self._do_resample(mu1, sigma1, mu2, sigma2)
                         if not resample: break
 
                 mean[kk2,:] = mu2
@@ -175,13 +175,15 @@ class Simulate():
                         overlap = True
 
         while overlap:
-            return self._check_means(mean, sigma_vector, alpha, n=n+1)
+            return self._check_means(mean, sigma_vector, n=n+1)
 
         return mean, sigma_vector
 
 
-    def _do_resample(self, mu, sigma, mu_k, sigma_k, alpha=.4):
+    def _do_resample(self, mu, sigma, mu_k, sigma_k):
         # if they are separated even only in one timepoints, I do not need to resample
+        alpha = self.settings["alpha"]
+
         for tt in range(self.settings["T"]):
             norm1 = distr.Normal(mu_k[tt], sigma_k[tt])
             norm2 = distr.Normal(mu[tt], sigma[tt])
