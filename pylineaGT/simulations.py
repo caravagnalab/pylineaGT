@@ -28,19 +28,19 @@ class Simulate():
         self.cov_type = cov_type
         self.label = label
 
-        self.set_sigma_constraints()
+        # self.set_sigma_constraints()
 
 
-    def set_sigma_constraints(self):
-        slope = self.settings["slope"]
-        intercept = self.settings["intercept"]
+    # def set_sigma_constraints(self):
+    #     slope = self.settings["slope"]
+    #     intercept = self.settings["intercept"]
 
-        T = self.settings["T"]
-        slope_tns = torch.repeat_interleave(slope, T)
-        intercept_tns = torch.repeat_interleave(intercept, T)
-        self.lm = {"slope":slope_tns, "intercept":intercept_tns}
-        self.settings["slope"] = slope_tns
-        self.settings["intercept"] = intercept_tns
+    #     T = self.settings["T"]
+    #     slope_tns = torch.repeat_interleave(slope, T)
+    #     intercept_tns = torch.repeat_interleave(intercept, T)
+    #     self.lm = {"slope":slope_tns, "intercept":intercept_tns}
+    #     self.settings["slope"] = slope_tns
+    #     self.settings["intercept"] = intercept_tns
 
 
     def generate_dataset(self):
@@ -56,6 +56,9 @@ class Simulate():
         min_var = self.settings["min_var"]
         eta = self.settings["eta"]
 
+        slope = self.settings["slope"]
+        intercept = self.settings["intercept"]
+
         weights = distr.Dirichlet(torch.ones(K)).sample()
         
         z = torch.zeros((N,), dtype=torch.long)
@@ -69,31 +72,42 @@ class Simulate():
         sigma_vector = torch.zeros(K,T)
         var_constr = torch.zeros(K,T)
         sigma_chol = torch.zeros((K,T,T))
+
+        mean = distr.Uniform(0, max_value).rsample((K,T))
+
+        sigma_vector = mean * slope + intercept + \
+            distr.Normal(0, 5).rsample((K,T))
+
+        sigma_vector[sigma_vector < min_var] = min_var
+
+        if self.cov_type == "full" and T>1:
+            sigma_chol = distr.LKJCholesky(T, eta).sample((K,))
         
-        for k in pyro.plate("clusters", K):
+        # for k in pyro.plate("clusters", K):
 
-            for t in pyro.plate("timepoints", T):
-                mean[k,t] = distr.Uniform(0, max_value).sample()
-                # mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
-                sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
+        #     for t in pyro.plate("timepoints", T):
+        #         mean[k,t] = distr.Uniform(0, max_value).sample()
+        #         # mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+        #         # sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
+        #         sigma_vector[k,t] = mean[k,t] * slope[t] + intercept[t] + distr.Normal(0,10).sample()
 
-                # check for negative values
-                # while mean[k,t] < 0:
-                #     mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+        #         # check for negative values
+        #         # while mean[k,t] < 0:
+        #         #     mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
 
-                var_constr[k,t] = mean[k,t] * self.lm["slope"][t] + self.lm["intercept"][t]
+        #         var_constr[k,t] = mean[k,t] * slope[t] + intercept[t]
 
-                # check for negative values
-                while sigma_vector[k,t] < min_var or sigma_vector[k,t] > var_constr[k,t]:
-                    sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
+        #         # check for negative values
+        #         # while sigma_vector[k,t] < min_var or sigma_vector[k,t] > var_constr[k,t]:
+        #         #     sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
             
-            if self.cov_type == "full" and T>1:
-                sigma_chol[k] = distr.LKJCholesky(T, eta).sample()
+        #     if self.cov_type == "full" and T>1:
+        #         sigma_chol[k] = distr.LKJCholesky(T, eta).sample()
 
         if self.cov_type == "diag" or T==1:
             sigma_chol = torch.eye(T) * 1.
 
-        mean = self._check_means(mean, sigma_vector)
+        mean, sigma_vector = self._check_means(mean, sigma_vector)
 
         Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
         for n in pyro.plate("obs", N):
@@ -109,7 +123,7 @@ class Simulate():
 
 
 
-    def _check_means(self, mean, sigma_vector, alpha=.1, n=1):
+    def _check_means(self, mean, sigma_vector, alpha=.3, n=1):
         '''
         Function to perform a check in the sampled means, to avoid overlapping 
         distributions that by construction can't be distinguished.
@@ -119,9 +133,14 @@ class Simulate():
 
         if n == self._max_iter:
             print("MAX ITERATION")
-            return mean
+            return mean, sigma_vector
 
         max_value = self.settings["max_value"]
+        min_var = self.settings["min_var"]
+        slope = self.settings["slope"]
+        intercept = self.settings["intercept"]
+        K = self.settings["K"]
+        T = self.settings["T"]
 
         for kk1 in range(self.settings["K"]):
             mu1 = mean[kk1,:]
@@ -137,10 +156,16 @@ class Simulate():
                 while resample:
                     for tt in pyro.plate("time", self.settings["T"]):
                         mu2[tt] = distr.Uniform(0, max_value).sample()
+                        sigma2[tt] = mu2[tt] * slope + intercept + \
+                            distr.Normal(0, 5).sample()
+
+                        sigma2[sigma2 < min_var] = min_var
+
                         resample = self._do_resample(mu1, sigma1, mu2, sigma2, alpha=alpha)
                         if not resample: break
 
                 mean[kk2,:] = mu2
+                sigma_vector[kk2,:] = sigma2
                 
                 # check on the previously 
                 for kk_tmp in range(kk2):
@@ -152,7 +177,7 @@ class Simulate():
         while overlap:
             return self._check_means(mean, sigma_vector, alpha, n=n+1)
 
-        return mean
+        return mean, sigma_vector
 
 
     def _do_resample(self, mu, sigma, mu_k, sigma_k, alpha=.4):
