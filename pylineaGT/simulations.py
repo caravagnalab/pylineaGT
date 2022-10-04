@@ -25,19 +25,19 @@ class Simulate():
         self.cov_type = cov_type
         self.label = label
 
-        self.set_sigma_constraints()
+    #     self.set_sigma_constraints()
 
 
-    def set_sigma_constraints(self):
-        slope = self.settings["slope"]
-        intercept = self.settings["intercept"]
+    # def set_sigma_constraints(self):
+    #     slope = self.settings["slope"]
+    #     intercept = self.settings["intercept"]
 
-        T = self.settings["T"]
-        slope_tns = torch.repeat_interleave(slope, T)
-        intercept_tns = torch.repeat_interleave(intercept, T)
-        self.lm = {"slope":slope_tns, "intercept":intercept_tns}
-        self.settings["slope"] = slope_tns
-        self.settings["intercept"] = intercept_tns
+    #     T = self.settings["T"]
+    #     slope_tns = torch.repeat_interleave(slope, T)
+    #     intercept_tns = torch.repeat_interleave(intercept, T)
+    #     self.lm = {"slope":slope_tns, "intercept":intercept_tns}
+    #     self.settings["slope"] = slope_tns
+    #     self.settings["intercept"] = intercept_tns
 
 
     def generate_dataset(self):
@@ -78,7 +78,7 @@ class Simulate():
                 # while mean[k,t] < 0:
                 #     mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
 
-                var_constr[k,t] = mean[k,t] * self.lm["slope"][t] + self.lm["intercept"][t]
+                var_constr[k,t] = mean[k,t] * self.settings["slope"] + self.settings["intercept"]
 
                 # check for negative values
                 while sigma_vector[k,t] < min_var or sigma_vector[k,t] > var_constr[k,t]:
