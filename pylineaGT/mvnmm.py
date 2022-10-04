@@ -26,6 +26,8 @@ class MVNMixtureModel():
         self.K, self._N, self._T = K, self.dataset.shape[0], self.dataset.shape[1]
         self._initialize_attributes()
 
+        self._input_K = K
+
         try: 
             assert self.dataset.unique(dim=0).shape[0] >= K
             self.error = False
@@ -875,12 +877,19 @@ class MVNMixtureModel():
             params = self.params
 
         if self.cov_type == "full":
-            return params["weights"].numel() + params["mean"].numel() \
-                + params["sigma_vector"].numel() + params["K"]*self._T*(self._T-1) / 2
+            return self._input_K + \
+                self._input_K*self._T + \
+                self._input_K*self._T + \
+                self._input_K * self._T*(self._T-1) / 2
+            # return params["weights"].numel() + params["mean"].numel() \
+            #     + params["sigma_vector"].numel() + params["K"]*self._T*(self._T-1) / 2
 
         if self.cov_type == "diag":
-            return params["weights"].numel() + params["mean"].numel() \
-                + params["sigma_vector"].numel()
+            return self._input_K + \
+                self._input_K*self._T + \
+                self._input_K*self._T
+            # return params["weights"].numel() + params["mean"].numel() \
+            #     + params["sigma_vector"].numel()
 
 
     def compute_ic(self, method=None, params=None) -> np.array:
