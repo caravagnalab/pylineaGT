@@ -634,7 +634,7 @@ class MVNMixtureModel():
 
     def _convergence(self, mean_conv, sigma_conv, elbo, conv, p):
         perc = p * self._settings["lr"]
-        if self._convergence_elbo(elbo, perc) and \
+        if self._convergence_elbo(elbo, p) and \
             self._check_convergence(mean_conv, perc) and \
             self._check_convergence(sigma_conv, perc):
             return conv + 1
