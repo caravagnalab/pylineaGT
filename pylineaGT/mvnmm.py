@@ -533,7 +533,7 @@ class MVNMixtureModel():
 
 
     def fit(self, steps=500, optim_fn=pyro.optim.Adam, loss_fn=pyro.infer.TraceEnum_ELBO(), \
-            lr=0.005, cov_type="full", check_conv=True, p=1,  min_steps=1, default_lm=True, \
+            lr=0.005, cov_type="full", check_conv=True, p=1,  min_steps=20, default_lm=True, \
             store_params=False, show_progr=True, seed_optim=True, seed=5, init_seed=None):
         
         pyro.enable_validation(True)
@@ -614,14 +614,15 @@ class MVNMixtureModel():
             if check_conv and step >= min_steps:
                 mean_conv[0], mean_conv[1] = mean_conv[1], params_step["mean"]
                 sigma_conv[0], sigma_conv[1] = sigma_conv[1], params_step["sigma_vector"]
-                conv = self._convergence(mean_conv, sigma_conv, conv, p=p)
-                # conv = self._convergence_grads(gradient_norms, conv)
+                losses_conv = losses[-2:]
+                conv = self._convergence(mean_conv, sigma_conv, losses_conv, conv, p=p)
+
                 if conv == 10:
                     if show_progr:
                         t.set_description("ELBO %f" % elb)
                         t.reset(total=step)
                     break
-            
+
             if show_progr:
                 t.set_description("ELBO %f" % elb)
                 t.refresh()
@@ -629,6 +630,25 @@ class MVNMixtureModel():
         return {"losses":losses, 
             "gradients":dict(gradient_norms), 
             "params":params}
+
+
+    def _convergence(self, mean_conv, sigma_conv, elbo, conv, p):
+        perc = p * self._settings["lr"]
+        if self._convergence_elbo(elbo, perc) and \
+            self._check_convergence(mean_conv, perc) and \
+            self._check_convergence(sigma_conv, perc):
+            return conv + 1
+        return 0
+
+
+    def _convergence_elbo(self, elbo, perc):
+        '''
+        Function to check the convergence of the ELBO.
+        - `elbo` is a list with the ELBO at iteration `t` and `t-1`.
+        - `p` is the percentage of ELBO s.t. `| E^(t-1) - E^(t) | < p*E^(t-1)`
+        '''
+        eps = perc * elbo[0]
+        return abs(elbo[0] - elbo[1]) <= eps
 
 
     # def _convergence_grads(self, gradient_norms, conv):
@@ -642,11 +662,6 @@ class MVNMixtureModel():
     #     return 0
 
 
-    def _convergence(self, mean_conv, sigma_conv, conv, p):
-        if self._check_convergence(mean_conv, p) and self._check_convergence(sigma_conv, p):
-            return conv + 1
-        return 0
-
 
     def _normalize(self, par):
         # zi = (xi - min(x)) / (max(x) - min(x))
@@ -658,27 +673,27 @@ class MVNMixtureModel():
         return norm
 
 
-    def _check_convergence(self, par, p) -> Boolean:
+    def _check_convergence(self, par, perc) -> Boolean:
         '''
         - `par` -> list of 2 elements given the previous (at index 0) and current (at index 1) 
         estimated values for a parameter.
-        - `p` -> numeric value in `[0,1]`, corresponding to a percentage of the learning rate used for convergence.
-        The function returns `True` if more than 95% of the values changed less than `perc*100`% 
+        - `perc` -> numeric value in `[0,1]`, corresponding to a percentage used for convergence.
+
+        The function returns `True` if all the values changed less than `perc*100`% 
         in the current step with respect to the previous one.
         '''
         par = self._normalize(par)
-        eps = p * self._settings["lr"]
         # print(eps)
         n = 0
         for k in range(par[0].shape[0]):
             for t in range(par[0].shape[1]):
-                perc = eps * par[0][k,t] # torch.max(torch.tensor(1), par[0][k,t])
-                if torch.absolute(par[0][k,t] - par[1][k,t]) <= perc:
+                eps = perc * par[0][k,t] # torch.max(torch.tensor(1), par[0][k,t])
+                if torch.absolute(par[0][k,t] - par[1][k,t]) <= eps:
                     n += 1
                 # else:
                 #     print(par[0][k,t], par[1][k,t], par[0][k,t] - par[1][k,t], eps * par[0][k,t])
 
-        return n >= .9 * self.params["K"]*self.params["T"]
+        return n >= 0.9 * self.params["K"]*self.params["T"]
 
 
     def _get_learned_parameters(self) -> Dict:
@@ -877,19 +892,19 @@ class MVNMixtureModel():
             params = self.params
 
         if self.cov_type == "full":
-            return self._input_K + \
-                self._input_K*self._T + \
-                self._input_K*self._T + \
-                self._input_K * self._T*(self._T-1) / 2
-            # return params["weights"].numel() + params["mean"].numel() \
-            #     + params["sigma_vector"].numel() + params["K"]*self._T*(self._T-1) / 2
+            # return self._input_K + \
+            #     self._input_K*self._T + \
+            #     self._input_K*self._T + \
+            #     self._input_K * self._T*(self._T-1) / 2
+            return params["weights"].numel() + params["mean"].numel() \
+                + params["sigma_vector"].numel() + params["K"]*self._T*(self._T-1) / 2
 
         if self.cov_type == "diag":
-            return self._input_K + \
-                self._input_K*self._T + \
-                self._input_K*self._T
-            # return params["weights"].numel() + params["mean"].numel() \
-            #     + params["sigma_vector"].numel()
+            # return self._input_K + \
+            #     self._input_K*self._T + \
+            #     self._input_K*self._T
+            return params["weights"].numel() + params["mean"].numel() \
+                + params["sigma_vector"].numel()
 
 
     def compute_ic(self, method=None, params=None) -> np.array:

@@ -1,7 +1,7 @@
 import pandas as pd
 import pyro
 
-from .mvnmm import MVNMixtureModel
+from mvnmm import MVNMixtureModel
 
 def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
         n_runs=1, steps=500, lr=0.005, p=1, check_conv=True, min_steps=20,
@@ -118,7 +118,7 @@ def compute_ic(model, kk, run, id, init_seed, seed):
     ic_dict["AIC"] = [float(model.compute_ic(method="AIC"))]
     ic_dict["ICL"] = [float(model.compute_ic(method="ICL"))]
 
-    # print(ic_dict["BIC"])
+    print(kk, ic_dict["BIC"])
 
     return pd.DataFrame(ic_dict)
 
