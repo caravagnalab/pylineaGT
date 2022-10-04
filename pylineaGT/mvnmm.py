@@ -553,6 +553,7 @@ class MVNMixtureModel():
             optim = self._settings["optim"]
             elbo = self._settings["loss"]
             _, self._seed = min([self._initialize_seed(optim, elbo, seed) for seed in range(50)], key = lambda x: x[0])
+            print("BEST SEED ", self._seed)
         
         if self._seed is not None:
             pyro.set_rng_seed(self._seed)
@@ -634,20 +635,20 @@ class MVNMixtureModel():
 
     def _convergence(self, mean_conv, sigma_conv, elbo, conv, p):
         perc = p * self._settings["lr"]
-        if self._convergence_elbo(elbo, p) and \
+        if self._convergence_elbo(elbo) and \
             self._check_convergence(mean_conv, perc) and \
             self._check_convergence(sigma_conv, perc):
             return conv + 1
         return 0
 
 
-    def _convergence_elbo(self, elbo, perc):
+    def _convergence_elbo(self, elbo, p=.05):
         '''
         Function to check the convergence of the ELBO.
         - `elbo` is a list with the ELBO at iteration `t` and `t-1`.
         - `p` is the percentage of ELBO s.t. `| E^(t-1) - E^(t) | < p*E^(t-1)`
         '''
-        eps = perc * elbo[0]
+        eps = p * elbo[0]
         return abs(elbo[0] - elbo[1]) <= eps
 
 
