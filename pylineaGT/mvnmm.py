@@ -553,7 +553,7 @@ class MVNMixtureModel():
             optim = self._settings["optim"]
             elbo = self._settings["loss"]
             _, self._seed = min([self._initialize_seed(optim, elbo, seed) for seed in range(50)], key = lambda x: x[0])
-            print("BEST SEED ", self._seed)
+            # print("BEST SEED ", self._seed)
         
         if self._seed is not None:
             pyro.set_rng_seed(self._seed)
@@ -648,6 +648,7 @@ class MVNMixtureModel():
         - `elbo` is a list with the ELBO at iteration `t` and `t-1`.
         - `p` is the percentage of ELBO s.t. `| E^(t-1) - E^(t) | < p*E^(t-1)`
         '''
+        return True
         eps = p * elbo[0]
         return abs(elbo[0] - elbo[1]) <= eps
 
@@ -684,15 +685,12 @@ class MVNMixtureModel():
         in the current step with respect to the previous one.
         '''
         par = self._normalize(par)
-        # print(eps)
         n = 0
         for k in range(par[0].shape[0]):
             for t in range(par[0].shape[1]):
                 eps = perc * par[0][k,t] # torch.max(torch.tensor(1), par[0][k,t])
                 if torch.absolute(par[0][k,t] - par[1][k,t]) <= eps:
                     n += 1
-                # else:
-                #     print(par[0][k,t], par[1][k,t], par[0][k,t] - par[1][k,t], eps * par[0][k,t])
 
         return n >= 0.9 * self.params["K"]*self.params["T"]
 
