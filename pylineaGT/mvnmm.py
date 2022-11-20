@@ -148,9 +148,11 @@ class MVNMixtureModel():
         It performs a linear regression on the marginal distribution of each dimension and performs 
         a check on the x-intercept, to avoid negative values of y for x in [0,max_cov].
         '''
-        if self._default_lm:
+        if self._default_lm == True:
             return self._set_sigma_constraints()
-        return self._compute_sigma_constraints()
+
+        if self._default_lm == False:
+            return self._compute_sigma_constraints()
 
 
     def _set_sigma_constraints(self):
@@ -546,6 +548,10 @@ class MVNMixtureModel():
         self._default_lm = default_lm
         self._seed = None if seed_optim else seed
         self._init_seed = None if init_seed is None else init_seed
+
+        if not self._default_lm:
+            self.hyperparameters.pop("slope")
+            self.hyperparameters.pop("intercept")
 
         if seed_optim:
             # set the guide and initialize the SVI object to minimize the initial loss 
