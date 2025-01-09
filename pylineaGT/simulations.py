@@ -72,13 +72,14 @@ class Simulate():
         for k in pyro.plate("clusters", K):
 
             for t in pyro.plate("timepoints", T):
-                # mean[k,t] = distr.Uniform(0, mean_scale).sample()
-                mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+                mean[k,t] = distr.Uniform(1, mean_scale).sample()
+                # mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
                 sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
 
                 # check for negative values in the means
                 while mean[k,t] < 0:
-                    mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
+                    mean[k,t] = distr.Uniform(1, mean_scale).sample()
+                    # mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
 
                 # var_constr[k,t] = mean[k,t] * self.settings["slope"] + self.settings["intercept"]
 
@@ -148,8 +149,8 @@ class Simulate():
 
                 while resample:
                     for tt in pyro.plate("time", self.settings["T"]):
-                        # mu2[tt] = distr.Uniform(0, max_value).sample()
-                        mu2[tt] = distr.Normal(mean_loc, mean_scale).sample()
+                        mu2[tt] = distr.Uniform(1, mean_loc).sample()
+                        # mu2[tt] = distr.Normal(mean_loc, mean_scale).sample()
                         sigma2[tt] = distr.Normal(var_loc, var_scale).sample()
                         # constr2[tt] = mu2[tt] * slope + intercept
                         # while sigma2[tt] < min_var or sigma2[tt] >= constr2[tt]:
