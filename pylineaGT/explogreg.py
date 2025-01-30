@@ -2,6 +2,7 @@ from copy import copy, deepcopy
 from random import random
 import pyro
 import pyro.distributions as distr
+from pyro.infer import MCMC, NUTS
 import torch
 import numpy as np
 
@@ -62,12 +63,14 @@ class Regression():
         the Bernoulli likelihood, with observed values `y/K`.
         '''
         ## mm is the maximum observed population value per lineage
-        unif_low = torch.max(self.y, dim=0).values.ceil()
-        unif_high = torch.max(unif_low*1.5, unif_low+1)
+        unif_low = torch.max(self.y*0.9, dim=0).values.ceil()
+        # unif_low = torch.max(self.y, dim=0).values.ceil()
+        unif_high = torch.max(unif_low*2, unif_low+1)
+        # unif_high = torch.max(unif_low*1.5, unif_low+1)
         t1 = self.init_time
 
-        with pyro.plate("lineages", self.L):
-            fitn = pyro.sample("fitness", distr.Normal(0., .05))
+        with pyro.plate("lineages1", self.L):
+            fitn = pyro.sample("fitness", distr.Normal(0., 1.5))
 
             ## TODO improve the limits of the Uniform ?
             carrying_capacity = pyro.sample("carr_capac", distr.Uniform(low=unif_low, high=unif_high))
@@ -78,8 +81,9 @@ class Regression():
             if self._estimate_t1:
                 t1 = pyro.sample("init_time", distr.Uniform(1, self.init_time.float()))
 
-        with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(1))
+        with pyro.plate("lineages3", self.L):
+            with pyro.plate("obs_sigma", self.N):
+                sigma = pyro.sample("sigma", distr.HalfNormal(1))
 
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
         logits = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate - \
@@ -87,7 +91,7 @@ class Regression():
 
         for ll in pyro.plate("lineages2", self.L):
             with pyro.plate(f"data_{ll}", self.N):
-                obs = pyro.sample(f"obs_{ll}", distr.Bernoulli(logits=logits[:,ll] + sigma, validate_args=False), 
+                obs = pyro.sample(f"obs_{ll}", distr.Bernoulli(logits=logits[:,ll] + sigma[:,ll], validate_args=False), 
                     obs=self.y[:,ll] / carrying_capacity[ll])
 
 
@@ -95,7 +99,7 @@ class Regression():
         t1 = self.init_time
 
         with pyro.plate("lineages", self.L):
-            fitn = pyro.sample("fitness", distr.Normal(0., .05))
+            fitn = pyro.sample("fitness", distr.Normal(0., 1.))
 
             # estimate the t0 for the subclones
             # t0 is the value s.t. e^(rate*t0) = 1 -> t0 = ln(1) / rate AND t0 > 0
@@ -124,6 +128,21 @@ class Regression():
     def _set_regr_type(self, regr):
         self.exp = True if "exp" in regr else False
         self.log = True if "log" in regr else False
+
+
+    def train_mcmc(self, num_samples=1000, warmup_steps=500, num_chains=3, regr="exp", p_rate=None, random_state=25):
+        self._set_regr_type(regr)
+        self.p_rate = p_rate
+
+        self._global_model = self.model_exp if self.exp else self.model_logistic if self.log else None
+
+        if random_state is not None:
+            pyro.set_rng_seed(random_state)
+
+        nuts_kernel = NUTS(self._global_model)
+        mcmc = MCMC(nuts_kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=num_chains)
+        mcmc.run()
+        return mcmc
 
 
     def train(self, steps=500, optim=pyro.optim.Adam, lr=0.01, loss_fn=pyro.infer.Trace_ELBO(), \
