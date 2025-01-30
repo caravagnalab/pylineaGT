@@ -63,11 +63,11 @@ class Regression():
         '''
         ## mm is the maximum observed population value per lineage
         unif_low = torch.max(self.y, dim=0).values.ceil()
-        unif_high = torch.max(unif_low*2, unif_low+1)
+        unif_high = torch.max(unif_low*1.5, unif_low+1)
         t1 = self.init_time
 
         with pyro.plate("lineages", self.L):
-            fitn = pyro.sample("fitness", distr.Normal(0., .5))
+            fitn = pyro.sample("fitness", distr.Normal(0., .05))
 
             ## TODO improve the limits of the Uniform ?
             carrying_capacity = pyro.sample("carr_capac", distr.Uniform(low=unif_low, high=unif_high))
@@ -95,7 +95,7 @@ class Regression():
         t1 = self.init_time
 
         with pyro.plate("lineages", self.L):
-            fitn = pyro.sample("fitness", distr.Normal(0., .5))
+            fitn = pyro.sample("fitness", distr.Normal(0., .05))
 
             # estimate the t0 for the subclones
             # t0 is the value s.t. e^(rate*t0) = 1 -> t0 = ln(1) / rate AND t0 > 0
@@ -165,11 +165,11 @@ class Regression():
                 if self._estimate_t1:
                     t1_conv[0], t1_conv[1] = t1_conv[1], params_step["init_time"].clone().detach()
                 
-                conv = self._convergence(rate_conv, carrying_conv, t1_conv, conv, p=p)
-                if conv == 10:
-                    t.set_description("ELBO %f" % loss)
-                    t.reset(total=step)
-                    break
+                # conv = self._convergence(rate_conv, carrying_conv, t1_conv, conv, p=p)
+                # if conv == 10:
+                #     t.set_description("ELBO %f" % loss)
+                #     t.reset(total=step)
+                #     break
             
             t.set_description("ELBO %f" % loss)
             t.refresh()
