@@ -22,6 +22,7 @@ class Regression():
         
         self.L = self.y.shape[1]  # n of lineages
         self.compute_initial_t()
+        self.mcmc = None
 
 
     def check_zero(self, x):
@@ -63,14 +64,17 @@ class Regression():
         the Bernoulli likelihood, with observed values `y/K`.
         '''
         ## mm is the maximum observed population value per lineage
-        unif_low = torch.max(self.y*0.9, dim=0).values.ceil()
+
+        # unif_low = torch.max(self.y*0.7, dim=0).values.ceil()
+        unif_low = torch.quantile(self.y, 0.8, dim=0).ceil()
         # unif_low = torch.max(self.y, dim=0).values.ceil()
         unif_high = torch.max(unif_low*2, unif_low+1)
+
         # unif_high = torch.max(unif_low*1.5, unif_low+1)
         t1 = self.init_time
 
         with pyro.plate("lineages1", self.L):
-            fitn = pyro.sample("fitness", distr.Normal(0., 1.5))
+            fitn = pyro.sample("fitness", distr.Normal(0., 1.))
 
             ## TODO improve the limits of the Uniform ?
             carrying_capacity = pyro.sample("carr_capac", distr.Uniform(low=unif_low, high=unif_high))
@@ -98,7 +102,7 @@ class Regression():
     def model_exp(self):
         t1 = self.init_time
 
-        with pyro.plate("lineages", self.L):
+        with pyro.plate("lineages1", self.L):
             fitn = pyro.sample("fitness", distr.Normal(0., 1.))
 
             # estimate the t0 for the subclones
@@ -108,16 +112,17 @@ class Regression():
 
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
 
-        with pyro.plate("obs_sigma", self.N):
-            sigma = pyro.sample("sigma", distr.HalfNormal(1))
+        with pyro.plate("lineages2", self.L):
+            with pyro.plate("obs_sigma", self.N):
+                sigma = pyro.sample("sigma", distr.HalfNormal(1))
 
         # for each lineage, the pop grows as r*(t-t1), 
         # where t1 is the time the population is first observed
         mean = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate
 
-        for ll in pyro.plate("lineages2", self.L):
+        for ll in pyro.plate("lineages3", self.L):
             with pyro.plate(f"data_{ll}", self.N):
-                obs = pyro.sample(f"obs_{ll}", distr.Normal(mean[:,ll], sigma), 
+                obs = pyro.sample(f"obs_{ll}", distr.Normal(mean[:,ll], sigma[:,ll]), 
                     obs=torch.log(self.y[:,ll]))
 
 
@@ -142,12 +147,20 @@ class Regression():
         nuts_kernel = NUTS(self._global_model)
         mcmc = MCMC(nuts_kernel, num_samples=num_samples, warmup_steps=warmup_steps, num_chains=num_chains)
         mcmc.run()
-        return mcmc
+        self.mcmc = mcmc
+
+        self.posterior_samples = mcmc.get_samples()
+
+        posterior_samples_numpy = {}
+        for name, value in self.posterior_samples.items():
+            posterior_samples_numpy[name] = value.numpy()
+
+        return posterior_samples_numpy
 
 
     def train(self, steps=500, optim=pyro.optim.Adam, lr=0.01, loss_fn=pyro.infer.Trace_ELBO(), \
             regr="exp", p_rate=None, min_steps=50, p=.5, random_state=25):
-        
+
         pyro.enable_validation(True)
         # to clear the param store
         pyro.get_param_store().__init__()
@@ -235,6 +248,9 @@ class Regression():
 
 
     def get_learned_params(self, return_numpy=True):
+        if self.mcmc is not None:
+            return self.get_mcmc_learned_params(return_numpy=return_numpy)
+
         params = {}
         self._global_guide.requires_grad_(False)
         for name, value in self._global_guide().items():
@@ -250,6 +266,23 @@ class Regression():
             params["init_time"] = params.get("init_time", self.init_time.clone().detach())
             params["parent_rate"] = self.p_rate.clone().detach() if self.p_rate is not None else None
 
+        return params
+
+
+    def get_mcmc_learned_params(self, return_numpy=True):
+        params = {}
+        for name, value in self.posterior_samples.items():
+            params[name] = value.mean(axis=0)
+            if return_numpy:
+                params[name] = params[name].numpy()
+
+        if return_numpy:
+            params["init_time"] = params.get("init_time", self.init_time.numpy())
+            params["parent_rate"] = self.p_rate.numpy() if self.p_rate is not None else None
+        else:
+            params["init_time"] = params.get("init_time", self.init_time)
+            params["parent_rate"] = self.p_rate if self.p_rate is not None else None
+        
         return params
 
 
