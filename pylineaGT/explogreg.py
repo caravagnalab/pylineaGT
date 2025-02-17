@@ -1,10 +1,8 @@
-from copy import copy, deepcopy
-from random import random
+from collections import defaultdict
 import pyro
 import pyro.distributions as distr
 from pyro.infer import MCMC, NUTS
 import torch
-import numpy as np
 
 from pyro.infer import SVI, Trace_ELBO
 from tqdm import trange
@@ -39,7 +37,7 @@ class Regression():
         # for each lineage, I store the index of the first value greater than 0
         for ll in range(self.L):
             tmp = self.y[:,ll]
-            try: t[ll] = self.x[tmp>11e-20][0]
+            try: t[ll] = self.x[tmp>=1.][0]
             except: t[ll] = torch.max(self.x)
             # except: t[ll] = torch.tensor(0.)
         
@@ -65,19 +63,20 @@ class Regression():
         '''
         ## mm is the maximum observed population value per lineage
 
-        # unif_low = torch.max(self.y*0.7, dim=0).values.ceil()
-        unif_low = torch.quantile(self.y, 0.8, dim=0).ceil()
-        # unif_low = torch.max(self.y, dim=0).values.ceil()
-        unif_high = torch.max(unif_low*2, unif_low+1)
+        unif_low = torch.quantile(self.y, 0.9, dim=0).ceil()
+        unif_high = torch.max(torch.max(self.y, dim=0).values.ceil(), unif_low*2)
 
-        # unif_high = torch.max(unif_low*1.5, unif_low+1)
+        # print(unif_low)
+        # print(unif_high)
+
         t1 = self.init_time
 
         with pyro.plate("lineages1", self.L):
             fitn = pyro.sample("fitness", distr.Normal(0., 1.))
 
             ## TODO improve the limits of the Uniform ?
-            carrying_capacity = pyro.sample("carr_capac", distr.Uniform(low=unif_low, high=unif_high))
+            # carrying_capacity = pyro.sample("carr_capac", distr.Uniform(low=unif_low, high=unif_high))
+            carrying_capacity = pyro.sample("carr_capac", distr.Gamma(unif_high*5., 10.))
 
             # estimate the t0 for the subclones
             # t0 is the value s.t. K * logit( -ln(K-1) + wt0 ) = 1
@@ -87,15 +86,18 @@ class Regression():
 
         with pyro.plate("lineages3", self.L):
             with pyro.plate("obs_sigma", self.N):
-                sigma = pyro.sample("sigma", distr.HalfNormal(1))
+                sigma = pyro.sample("sigma", distr.Normal(0., 1.))
 
+        carrying_capacity = carrying_capacity.clamp(2)
         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
         logits = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate - \
-            torch.log(carrying_capacity -1)
+            torch.log( carrying_capacity -1 )
+
+        logits_sigma = logits + sigma
 
         for ll in pyro.plate("lineages2", self.L):
             with pyro.plate(f"data_{ll}", self.N):
-                obs = pyro.sample(f"obs_{ll}", distr.Bernoulli(logits=logits[:,ll] + sigma[:,ll], validate_args=False), 
+                obs = pyro.sample(f"obs_{ll}", distr.Bernoulli(logits=logits_sigma[:,ll], validate_args=False), 
                     obs=self.y[:,ll] / carrying_capacity[ll])
 
 
@@ -114,7 +116,7 @@ class Regression():
 
         with pyro.plate("lineages2", self.L):
             with pyro.plate("obs_sigma", self.N):
-                sigma = pyro.sample("sigma", distr.HalfNormal(1))
+                sigma = pyro.sample("sigma", distr.HalfNormal(1.))
 
         # for each lineage, the pop grows as r*(t-t1), 
         # where t1 is the time the population is first observed
@@ -170,11 +172,17 @@ class Regression():
 
         self._set_regr_type(regr)
         self.p_rate = p_rate
-        
+
         self._settings = {"optim":optim({"lr": lr}), "lr":lr, "loss":loss_fn}
         self._global_model = self.model_exp if self.exp else self.model_logistic if self.log else None
         self._global_guide = self.guide()
         self.svi = SVI(self._global_model, self._global_guide, self._settings["optim"], Trace_ELBO())
+        self.svi.step()
+
+        self.gradient_norms = defaultdict(list)
+        for name, value in pyro.get_param_store().named_parameters():
+            value.register_hook(lambda g, name=name: self.gradient_norms[name].append(g.norm().item()))
+
 
         conv = 0
         losses = []
@@ -197,11 +205,11 @@ class Regression():
                 if self._estimate_t1:
                     t1_conv[0], t1_conv[1] = t1_conv[1], params_step["init_time"].clone().detach()
                 
-                # conv = self._convergence(rate_conv, carrying_conv, t1_conv, conv, p=p)
-                # if conv == 10:
-                #     t.set_description("ELBO %f" % loss)
-                #     t.reset(total=step)
-                #     break
+                conv = self._convergence(rate_conv, carrying_conv, t1_conv, conv, p=p)
+                if conv == 10:
+                    t.set_description("ELBO %f" % loss)
+                    t.reset(total=step)
+                    break
             
             t.set_description("ELBO %f" % loss)
             t.refresh()
@@ -256,6 +264,7 @@ class Regression():
         for name, value in self._global_guide().items():
             ## NOTE do NOT first detach() and then clone() because it will detach the accumulated gradient
             params[name] = value.clone().detach()
+            if name == "carr_capac": params[name] = params[name].clamp(2)
             if return_numpy:
                 params[name] = params[name].numpy()
 
@@ -301,7 +310,7 @@ class Regression():
         logits = (self.x.expand(self.N, self.L) - params["init_time"]).clamp(0) * rate - \
             torch.log(params["carr_capac"] -1)
 
-        sigma = params["sigma"].unsqueeze(1)
+        sigma = params["sigma"] # .unsqueeze(1)
 
         return torch.sum(distr.Bernoulli(logits=logits + sigma, \
             validate_args=False).log_prob(self.y / params["carr_capac"]), dim=0).detach().numpy()
@@ -312,6 +321,6 @@ class Regression():
 
         rate = params["fitness"] if self.p_rate is None else self.p_rate*(1+params["fitness"])
         mean = (self.x.expand(self.N, self.L) - params["init_time"]).clamp(0) * rate
-        sigma = params["sigma"].unsqueeze(1)
+        sigma = params["sigma"] # .unsqueeze(1)
 
         return torch.sum(distr.Normal(mean, sigma).log_prob(torch.log(self.y)), dim=0).detach().numpy()
