@@ -4,7 +4,7 @@ import pyro
 
 
 class Simulate():
-    def __init__(self, seed, N, T, K, mean_loc=500, mean_scale=5000,
+    def __init__(self, seed, N, T, K, likelihood="MVN", mean_loc=500, mean_scale=5000,
         var_loc=110, var_scale=195, min_var=20, eta=1, cov_type="full",
         label="", max_iter=100, alpha=.1):
 
@@ -21,6 +21,8 @@ class Simulate():
             "alpha":alpha, "seed":seed}
 
         self._max_iter = max_iter
+
+        self.likelihood = likelihood
 
         self.cov_type = cov_type
         self.label = label
@@ -88,24 +90,33 @@ class Simulate():
                 while sigma_vector[k,t] < min_var:
                     sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
             
-            if self.cov_type == "full" and T>1:
+            if self.likelihood=="MVN" and self.cov_type == "full" and T>1:
                 sigma_chol[k] = distr.LKJCholesky(T, eta).sample()
 
-        if self.cov_type == "diag" or T==1:
+        if self.likelihood=="MVN" and self.cov_type == "diag" or T==1:
             sigma_chol = torch.eye(T) * 1.
 
         # mean, sigma_vector, var_constr = self._check_means(mean, sigma_vector, var_constr)
         mean, sigma_vector = self._check_means(mean, sigma_vector)
 
-        Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
-        for n in pyro.plate("obs", N):
-            x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
-            while torch.any(x[n,:] < 0):
+        nb_alpha = nb_probs = None
+        if self.likelihood == "MVN":
+            Sigma = self._compute_Sigma(sigma_chol, sigma_vector, K)
+            for n in pyro.plate("obs", N):
                 x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
+                while torch.any(x[n,:] < 0):
+                    x[n,:] = distr.MultivariateNormal(loc=mean[z[n]], scale_tril=Sigma[z[n]]).sample()
+        else:
+            sigma_vector = torch.sqrt(torch.maximum(sigma_vector**2, mean + 1))
+            nb_alpha = mean**2 / ( sigma_vector**2 - mean )
+            nb_probs = nb_alpha / (mean.clone().detach() + nb_alpha)
+            for n in pyro.plate("obs", N):
+                x[n,:] = distr.NegativeBinomial(total_count=nb_alpha[z[n]], probs=nb_probs[z[n]]).sample()
 
         self.dataset = x
         self.params = {"weights":weights, "mean":mean, "sigma":sigma_vector, \
-            "var_constr":var_constr, "sigma_chol":sigma_chol, "z":z}
+            "var_constr":var_constr, "sigma_chol":sigma_chol, \
+            "nb_alpha":nb_alpha, "z":z}
 
         self.sim_id = ".".join(["N"+str(N), "T"+str(T), "K"+str(K), str(self.label)])
 
@@ -186,8 +197,26 @@ class Simulate():
         alpha = self.settings["alpha"]
 
         for tt in range(self.settings["T"]):
-            norm1 = distr.Normal(mu_k[tt], sigma_k[tt])
-            norm2 = distr.Normal(mu[tt], sigma[tt])
+            if self.likelihood == "MVN":
+                norm1 = distr.Normal(mu_k[tt], sigma_k[tt])
+                norm2 = distr.Normal(mu[tt], sigma[tt])
+            elif self.likelihood == "NB":
+                sigma_k = torch.sqrt(torch.maximum(sigma_k**2, mu_k + 1))
+                nb_alpha_k = mu_k**2 / ( sigma_k**2 - mu_k )
+                nb_probs_k = nb_alpha_k / (mu_k + nb_alpha_k)
+            
+                sigma = torch.sqrt(torch.maximum(sigma**2, mu + 1))
+                nb_alpha = mu**2 / ( sigma**2 - mu )
+                nb_probs = nb_alpha / (mu + nb_alpha)
+
+                norm1 = distr.NegativeBinomial(total_count=nb_alpha_k[tt], probs=nb_probs_k[tt])
+                norm2 = distr.NegativeBinomial(total_count=nb_alpha[tt], probs=nb_probs[tt])
+
+                # sigma_vector = torch.sqrt(torch.maximum(sigma_vector**2, mean + 1))
+                # nb_alpha = mean**2 / ( sigma_vector**2 - mean )
+                # nb_probs = nb_alpha / (mean.clone().detach() + nb_alpha)
+                # for n in pyro.plate("obs", N):
+                #     x[n,:] = distr.NegativeBinomial(total_count=nb_alpha[z[n]], probs=nb_probs[z[n]]).sample()
 
             lower_q1 = norm1.icdf(torch.tensor(alpha))
             upper_q1 = norm1.icdf(torch.tensor(1-alpha))
