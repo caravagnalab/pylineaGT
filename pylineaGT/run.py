@@ -7,7 +7,7 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
         n_runs=1, steps=500, lr=0.005, p=1, check_conv=True, min_steps=20,
         covariance="full", hyperparams=dict(), default_lm=True, show_progr=True, 
         store_grads=True, store_losses=True, store_params=True, seed_optim=True, 
-        seed=5, init_seed=None):
+        seed=5, init_seed=None, return_object=False):
 
     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
 
@@ -45,10 +45,17 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
             if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)
             if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)  # list
             if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)  # list
-            
-            ic_df = pd.concat([ic_df, compute_ic(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)
-    
-    return ic_df, losses_df, grads_df, params_df
+
+            ic_df = pd.concat([ic_df, compute_ic(x_k, k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)
+            best_k = ic_df[ic_df["BIC"] == ic_df["BIC"].min()]["True_K"].values
+            if best_k == k:
+                x_k.classifier()
+                best_labels = x_k.params["clusters"]
+
+    if not return_object:
+        return ic_df, losses_df, grads_df, params_df
+
+    return ic_df, losses_df, grads_df, params_df, best_labels
 
 
 def single_run(k, df, IS, columns, lineages, steps, covariance, lr, check_conv, min_steps, p, 
@@ -111,8 +118,8 @@ def retrieve_params(model, kk, run, id, init_seed, seed):
                          model.losses_grad_train["params"]["weights"]]})
 
 
-def compute_ic(model, kk, run, id, init_seed, seed):
-    ic_dict = {"K":[kk], "run":[run], "id":[id], "seed":[seed], "init_seed":[init_seed]}
+def compute_ic(model, k, kk, run, id, init_seed, seed):
+    ic_dict = {"True_K":[k], "K":[kk], "run":[run], "id":[id], "seed":[seed], "init_seed":[init_seed]}
     ic_dict["NLL"] = [float(model.compute_ic(method="NLL"))]
     ic_dict["BIC"] = [float(model.compute_ic(method="BIC"))]
     ic_dict["AIC"] = [float(model.compute_ic(method="AIC"))]
