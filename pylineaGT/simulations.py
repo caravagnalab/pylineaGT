@@ -2,6 +2,8 @@ import torch
 import pyro.distributions as distr
 import pyro
 
+from scipy.stats import nbinom
+
 
 class Simulate():
     def __init__(self, seed, N, T, K, likelihood="MVN", mean_loc=500, mean_scale=5000,
@@ -26,20 +28,6 @@ class Simulate():
 
         self.cov_type = cov_type
         self.label = label
-
-    #     self.set_sigma_constraints()
-
-
-    # def set_sigma_constraints(self):
-    #     slope = self.settings["slope"]
-    #     intercept = self.settings["intercept"]
-
-    #     T = self.settings["T"]
-    #     slope_tns = torch.repeat_interleave(slope, T)
-    #     intercept_tns = torch.repeat_interleave(intercept, T)
-    #     self.lm = {"slope":slope_tns, "intercept":intercept_tns}
-    #     self.settings["slope"] = slope_tns
-    #     self.settings["intercept"] = intercept_tns
 
 
     def generate_dataset(self):
@@ -75,18 +63,13 @@ class Simulate():
 
             for t in pyro.plate("timepoints", T):
                 mean[k,t] = distr.Uniform(1, mean_scale).sample()
-                # mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
                 sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
 
                 # check for negative values in the means
                 while mean[k,t] < 0:
                     mean[k,t] = distr.Uniform(1, mean_scale).sample()
-                    # mean[k,t] = distr.Normal(mean_loc, mean_scale).sample()
-
-                # var_constr[k,t] = mean[k,t] * self.settings["slope"] + self.settings["intercept"]
 
                 # check for negative values
-                # while sigma_vector[k,t] < min_var or sigma_vector[k,t] > var_constr[k,t]:
                 while sigma_vector[k,t] < min_var:
                     sigma_vector[k,t] = distr.Normal(var_loc, var_scale).sample()
             
@@ -136,49 +119,37 @@ class Simulate():
         # max_value = self.settings["max_value"]
         mean_loc = self.settings["mean_loc"]
         mean_scale = self.settings["mean_scale"]
-        
+
         min_var = self.settings["min_var"]
         var_loc = self.settings["var_loc"]
         var_scale = self.settings["var_scale"]
-
-        # slope = self.settings["slope"]
-        # intercept = self.settings["intercept"]
-        # K = self.settings["K"]
-        # T = self.settings["T"]
 
         for kk1 in range(self.settings["K"]):
             mu1 = mean[kk1,:]
             sigma1 = sigma_vector[kk1,:]
 
             for kk2 in range(kk1+1, self.settings["K"]):
+                print(kk1, kk2)
 
                 mu2 = mean[kk2,:]
                 sigma2 = sigma_vector[kk2,:]
-                # constr2 = var_constr[kk2,:]
 
                 resample = self._do_resample(mu1, sigma1, mu2, sigma2)
+                print(resample)
 
                 while resample:
                     for tt in pyro.plate("time", self.settings["T"]):
                         mu2[tt] = distr.Uniform(1, mean_loc).sample()
-                        # mu2[tt] = distr.Normal(mean_loc, mean_scale).sample()
                         sigma2[tt] = distr.Normal(var_loc, var_scale).sample()
-                        # constr2[tt] = mu2[tt] * slope + intercept
-                        # while sigma2[tt] < min_var or sigma2[tt] >= constr2[tt]:
                         while sigma2[tt] < min_var:
                             sigma2[tt] = distr.Normal(var_loc, var_scale).sample()
-                        
-                        # sigma2[tt] = mu2[tt] * slope + intercept - \
-                        #     distr.Normal(0,10).sample().abs()
-                        # if sigma2[tt] < min_var: sigma2[tt] = min_var
 
                         resample = self._do_resample(mu1, sigma1, mu2, sigma2)
                         if not resample: break
 
                 mean[kk2,:] = mu2
                 sigma_vector[kk2,:] = sigma2
-                # var_constr[kk2,:] = constr2
-                
+
                 # check on the previously 
                 for kk_tmp in range(kk2):
                     tmp_overlap = self._do_resample(mean[kk_tmp,:], sigma_vector[kk_tmp,:], mu2, sigma2)
@@ -196,33 +167,34 @@ class Simulate():
         # if they are separated even only in one timepoints, I do not need to resample
         alpha = self.settings["alpha"]
 
+        sigma_k = torch.sqrt(torch.maximum(sigma_k**2, mu_k + 1))
+        nb_alpha_k = mu_k**2 / ( sigma_k**2 - mu_k )
+        nb_probs_k = nb_alpha_k / (mu_k + nb_alpha_k)
+
+        sigma = torch.sqrt(torch.maximum(sigma**2, mu + 1))
+        nb_alpha = mu**2 / ( sigma**2 - mu )
+        nb_probs = nb_alpha / (mu + nb_alpha)
+
         for tt in range(self.settings["T"]):
             if self.likelihood == "MVN":
                 norm1 = distr.Normal(mu_k[tt], sigma_k[tt])
                 norm2 = distr.Normal(mu[tt], sigma[tt])
+
+                lower_q1 = norm1.icdf(torch.tensor(alpha))
+                upper_q1 = norm1.icdf(torch.tensor(1-alpha))
+
+                lower_q2 = norm2.icdf(torch.tensor(alpha))
+                upper_q2 = norm2.icdf(torch.tensor(1-alpha))
+
             elif self.likelihood == "NB":
-                sigma_k = torch.sqrt(torch.maximum(sigma_k**2, mu_k + 1))
-                nb_alpha_k = mu_k**2 / ( sigma_k**2 - mu_k )
-                nb_probs_k = nb_alpha_k / (mu_k + nb_alpha_k)
-            
-                sigma = torch.sqrt(torch.maximum(sigma**2, mu + 1))
-                nb_alpha = mu**2 / ( sigma**2 - mu )
-                nb_probs = nb_alpha / (mu + nb_alpha)
+                lower_q1 = nbinom.ppf(alpha, nb_alpha_k[tt], nb_probs_k[tt])
+                upper_q1 = nbinom.ppf(1-alpha, nb_alpha_k[tt], nb_probs_k[tt])
 
-                norm1 = distr.NegativeBinomial(total_count=nb_alpha_k[tt], probs=nb_probs_k[tt])
-                norm2 = distr.NegativeBinomial(total_count=nb_alpha[tt], probs=nb_probs[tt])
+                lower_q2 = nbinom.ppf(alpha, nb_alpha[tt], nb_probs[tt])
+                upper_q2 = nbinom.ppf(1-alpha, nb_alpha[tt], nb_probs[tt])
 
-                # sigma_vector = torch.sqrt(torch.maximum(sigma_vector**2, mean + 1))
-                # nb_alpha = mean**2 / ( sigma_vector**2 - mean )
-                # nb_probs = nb_alpha / (mean.clone().detach() + nb_alpha)
-                # for n in pyro.plate("obs", N):
-                #     x[n,:] = distr.NegativeBinomial(total_count=nb_alpha[z[n]], probs=nb_probs[z[n]]).sample()
-
-            lower_q1 = norm1.icdf(torch.tensor(alpha))
-            upper_q1 = norm1.icdf(torch.tensor(1-alpha))
-
-            lower_q2 = norm2.icdf(torch.tensor(alpha))
-            upper_q2 = norm2.icdf(torch.tensor(1-alpha))
+                print(lower_q1, upper_q2)
+                print(upper_q1, lower_q2)
 
             if (lower_q1 > upper_q2) or (upper_q1 < lower_q2):
                 return False
