@@ -2,7 +2,8 @@ import torch
 import pyro
 import pyro.distributions as distr
 import pyro.poutine as poutine
-from pyro.infer import SVI, Trace_ELBO, TraceEnum_ELBO, autoguide
+import pandas as pd
+from pyro.infer import SVI, TraceEnum_ELBO, autoguide
 from pyro.optim import Adam
 from torch.distributions import constraints
 from tqdm import trange
@@ -16,13 +17,14 @@ def model(X, K):
     with pyro.plate("time_plate", T):
         with pyro.plate("comp_plate", K):
             # number of successes
-            alpha = pyro.sample("alpha", distr.Gamma(2.0, 0.5))
+            alpha = pyro.sample("alpha", distr.Gamma(1., 0.01))
             # prob of success
             probs = pyro.sample("probs", distr.Beta(2.0, 2.0))
 
     with pyro.plate("data_plate", N):
         z = pyro.sample("z", distr.Categorical(weights), infer={"enumerate":"parallel"})
         pyro.sample("obs", distr.NegativeBinomial(alpha[z], probs[z]).to_event(1), obs=X)
+
 
 def guide(X, K):
     N, T = X.shape
@@ -39,26 +41,34 @@ def guide(X, K):
         pyro.sample("z", distr.Categorical(weights), infer={"enumerate":"parallel"})
 
 
-def fit_mixture(X, K, lr=0.01, steps=1000):
+def fit_mixture(X, K, lr=0.01, steps=1000, seed=5):
+    pyro.set_rng_seed(seed)
     pyro.clear_param_store()
+
     optimizer = Adam({"lr": lr})
 
     guide_auto = autoguide.AutoDelta(poutine.block(model, hide=["z"]))
     svi = SVI(model, guide_auto, optimizer, loss=TraceEnum_ELBO())
 
+    losses = list()
     t = trange(steps, desc='Bar desc', leave=True)
     for step in t:
         elb = svi.step(X, K)
+        losses.append(elb)
         if step % 500 == 0:
             t.set_description("ELBO %f" % elb)
             t.refresh()
 
+    params = {name: pyro.param(name).detach() for name in pyro.get_param_store().get_all_param_names()}
+    post_probs, assignments = posterior_assignments(X, K, params, model)
+    params["K"] = len(assignments.unique())
+    params["post_probs"] = post_probs
+    params["assignments"] = assignments
 
-    return {name: pyro.param(name).detach() for name in pyro.get_param_store().get_all_param_names()}
+    return losses, params
 
 
 def posterior_assignments(X, K, guide_params, model_func):
-
     N, T = X.shape
 
     conditioned_model = poutine.condition(model_func, data=guide_params)
@@ -87,56 +97,94 @@ def posterior_assignments(X, K, guide_params, model_func):
     return post_probs, assignments
 
 
-# def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30], 
-#         n_runs=1, steps=500, lr=0.005, p=1, check_conv=True, min_steps=20,
-#         covariance="full", hyperparams=dict(), default_lm=True, show_progr=True, 
-#         store_grads=True, store_losses=True, store_params=True, seed_optim=True, 
-#         seed=5, init_seed=None, return_object=False):
+def compute_bic(X, params):
+    weights = params["AutoDelta.weights"]
+    alpha = params["AutoDelta.alpha"]
+    probs = params["AutoDelta.probs"]
 
-#     ic_df = pd.DataFrame(columns=["K","run","NLL","BIC","AIC","ICL"])
+    N, T = X.shape
+    K = weights.shape[0]
 
-#     losses_df = pd.DataFrame(columns=["K","run","losses"])
-#     losses_df.losses = losses_df.losses.astype("object")
+    log_likelihood = 0.0
 
-#     grads_df = pd.DataFrame(columns=["K","run","param","grad_norm"])
-#     grads_df.grad_norm = grads_df.grad_norm.astype("object")
+    for n in range(N):
+        x_n = X[n]
+        log_comp = torch.zeros(K)
 
-#     params_df = pd.DataFrame(columns=["K","run","param","params_values"])
-#     params_df.params_values = params_df.params_values.astype("object")
+        for k in range(K):
+            alpha_k = alpha[k]
+            probs_k = probs[k]
 
-#     for k in range(k_interval[0], k_interval[1]+1):
-#         for run in range(1, n_runs+1):
-#             # at the end of each run I would like:
-#             # - losses of the run
-#             # - AIC/BIC/ICL
-#             # - gradient norms for the parameters
-#             x_k = single_run(k=k, df=cov_df, IS=IS, columns=columns, lineages=lineages, 
-#                 steps=steps, covariance=covariance, lr=lr, p=p, check_conv=check_conv, 
-#                 min_steps=min_steps, default_lm=default_lm, hyperparams=hyperparams, 
-#                 show_progr=show_progr, store_params=store_params, 
-#                 seed_optim=seed_optim, seed=seed, init_seed=init_seed)
+            # log p(x_n | z=k)
+            log_px = (torch.lgamma(x_n + alpha_k) - torch.lgamma(alpha_k) - torch.lgamma(x_n + 1)
+                      + alpha_k * torch.log(1 - probs_k) + x_n * torch.log(probs_k)).sum()
+            log_comp[k] = torch.log(weights[k]) + log_px
 
-#             if x_k == 0:
-#                 continue
+        log_likelihood += torch.logsumexp(log_comp, dim=0)
 
-#             kk = x_k.params["K"]
+    nll = -log_likelihood.item()
+    n_parameters = (K - 1) + K*T + K*T
+    bic = 2*nll + n_parameters * torch.log(torch.tensor(N)).item()
+    return bic
 
-#             best_init_seed = x_k._init_seed
-#             best_seed = x_k._seed
 
-#             id = '.'.join([str(k), str(run)])
 
-#             if store_grads: grads_df = pd.concat([grads_df, compute_grads(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)
-#             if store_losses: losses_df = pd.concat([losses_df, compute_loss(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)  # list
-#             if store_params: params_df =  pd.concat([params_df, retrieve_params(x_k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)  # list
+def run_NB_inference(cov_df, k_interval=[10,30], n_runs=1, steps=500, lr=0.005, 
+                     store_losses=True, store_params=True, seed=5, return_object=False):
 
-#             ic_df = pd.concat([ic_df, compute_ic(x_k, k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)
-#             best_k = ic_df[ic_df["BIC"] == ic_df["BIC"].min()]["True_K"].values
-#             if best_k == k:
-#                 x_k.classifier()
-#                 best_labels = x_k.params["clusters"]
+    ic_df = pd.DataFrame(columns=["True_K","K","run","BIC"])
 
-#     if not return_object:
-#         return ic_df, losses_df, grads_df, params_df
+    losses_df = pd.DataFrame(columns=["True_K","K","run","losses"])
+    losses_df.losses = losses_df.losses.astype("object")
 
-#     return ic_df, losses_df, grads_df, params_df, best_labels
+    params_df = pd.DataFrame(columns=["True_K","K","run","param","params_values"])
+    params_df.params_values = params_df.params_values.astype("object")
+
+    for k in range(k_interval[0], k_interval[1]+1):
+        for run in range(1, n_runs+1):
+            losses, params = fit_mixture(cov_df, k)
+
+            kk = params["K"]
+            best_seed = seed
+            id = '.'.join([str(k), str(run)])
+
+            if store_losses: losses_df = pd.concat([losses_df, compute_NB_loss(k, kk, run, id, best_seed, losses)], ignore_index=True)  # list
+            if store_params: params_df =  pd.concat([params_df, retrieve_NB_params(k, kk, run, id, best_seed, params)], ignore_index=True)  # list
+
+            ic_df = pd.concat([ic_df, compute_NB_ic(k, kk, run, id, best_seed, cov_df, params)], ignore_index=True)
+            best_k = ic_df[ic_df["BIC"] == ic_df["BIC"].min()]["True_K"].values
+            if best_k == k:
+                best_labels = params["assignments"]
+
+    if not return_object:
+        return ic_df, losses_df, params_df
+
+    return ic_df, losses_df, params_df, best_labels
+
+
+def compute_NB_loss(k, kk, run, id, seed, losses):
+    return pd.DataFrame({"True_K":k,
+        "K":kk,
+        "run":run,
+        "id":id,
+        "seed":seed,
+        "losses":[losses]})
+
+
+def retrieve_NB_params(k, kk, run, id, seed, params):
+    return pd.DataFrame({"True_K":k,
+        "K":kk,
+        "run":run,
+        "id":id,
+        "seed":seed,
+        "param":["probs","alpha","weights"],
+        "params_values":[params["AutoDelta.probs"],
+                         params["AutoDelta.alpha"],
+                         params["AutoDelta.weights"]]})
+
+def compute_NB_ic(k, kk, run, id, seed, X, params):
+    ic_dict = {"True_K":[k], "K":[kk], "run":[run], "id":[id], "seed":[seed]}
+    ic_dict["BIC"] = [float(compute_bic(X, params))]
+
+    return pd.DataFrame(ic_dict)
+

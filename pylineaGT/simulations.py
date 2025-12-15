@@ -2,8 +2,6 @@ import torch
 import pyro.distributions as distr
 import pyro
 
-from scipy.stats import nbinom
-
 
 class Simulate():
     def __init__(self, seed, N, T, K, likelihood="MVN", mean_loc=500,
