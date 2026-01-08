@@ -48,7 +48,7 @@ def run_inference(cov_df, IS=[], columns=[], lineages=[], k_interval=[10,30],
 
             ic_df = pd.concat([ic_df, compute_ic(x_k, k, kk, run, id, best_init_seed, best_seed)], ignore_index=True)
             best_k = ic_df[ic_df["BIC"] == ic_df["BIC"].min()]["True_K"].values
-            if best_k == k:
+            if best_k.max() == k:
                 x_k.classifier()
                 best_labels = x_k.params["clusters"]
 
