@@ -1,0 +1,123 @@
+diff --git a/pylineaGT/explogreg.py b/pylineaGT/explogreg.py
+index 41b1928..5ffc2f5 100644
+--- a/pylineaGT/explogreg.py
++++ b/pylineaGT/explogreg.py
+@@ -16,9 +16,10 @@ class Regression():
+         '''
+         self.N = x.shape[0]  # n of timepoints
+         self.x = x.reshape((self.N,1)) if len(x.shape) == 2 else x  # timepoints
+-        self.y = self.check_zero(y)  # to avoid log of 0, change 0s to 1e-20
+-        
+-        self.L = self.y.shape[1]  # n of lineages
++        self.y_exp = self.check_zero(y)  # to avoid log of 0, change 0s to 1e-20
++        self.y_log = y.long()
++
++        self.L = self.y_exp.shape[1]  # n of lineages
+         self.compute_initial_t()
+         self.mcmc = None
+ 
+@@ -36,7 +37,7 @@ class Regression():
+         t = torch.zeros(self.L)
+         # for each lineage, I store the index of the first value greater than 0
+         for ll in range(self.L):
+-            tmp = self.y[:,ll]
++            tmp = self.y_exp[:,ll]
+             try: t[ll] = self.x[tmp>=1.][0]
+             except: t[ll] = torch.max(self.x)
+             # except: t[ll] = torch.tensor(0.)
+@@ -63,20 +64,19 @@ class Regression():
+         '''
+         ## mm is the maximum observed population value per lineage
+ 
+-        unif_low = torch.quantile(self.y, 0.9, dim=0).ceil()
+-        unif_high = torch.max(torch.max(self.y, dim=0).values.ceil(), unif_low*2)
+-
+-        # print(unif_low)
+-        # print(unif_high)
++        # unif_low = torch.quantile(self.y_log.float(), 0.9, dim=0).ceil()
++        # unif_high = torch.max(torch.max(self.y_log.float(), dim=0).values.ceil()*1.2, unif_low*2)
++        carr_capacity_mean = torch.max(torch.tensor(2.), 
++                                       torch.max(self.y_log.float(), dim=0).values.ceil())
+ 
+         t1 = self.init_time
+ 
+         with pyro.plate("lineages1", self.L):
+             fitn = pyro.sample("fitness", distr.Normal(0., 1.))
+ 
+-            ## TODO improve the limits of the Uniform ?
+             # carrying_capacity = pyro.sample("carr_capac", distr.Uniform(low=unif_low, high=unif_high))
+-            carrying_capacity = pyro.sample("carr_capac", distr.Gamma(unif_high*5., 10.))
++            # carrying_capacity = pyro.sample("carr_capac", distr.Gamma(unif_high*1., 1.))
++            carrying_capacity = pyro.sample("carr_capac", distr.LogNormal(torch.log(carr_capacity_mean), 0.5))
+ 
+             # estimate the t0 for the subclones
+             # t0 is the value s.t. K * logit( -ln(K-1) + wt0 ) = 1
+@@ -86,7 +86,7 @@ class Regression():
+ 
+         with pyro.plate("lineages3", self.L):
+             with pyro.plate("obs_sigma", self.N):
+-                sigma = pyro.sample("sigma", distr.Normal(0., 1.))
++                sigma = pyro.sample("sigma", distr.Gamma(2., 1.))
+ 
+         carrying_capacity = carrying_capacity.clamp(2)
+         rate = fitn if self.p_rate is None else self.p_rate*(1+fitn)
+@@ -94,11 +94,18 @@ class Regression():
+             torch.log( carrying_capacity -1 )
+ 
+         logits_sigma = logits + sigma
+-
++        # print("LOG")
++        # print(carrying_capacity)
++        # print(rate)
++        # print(logits_sigma)
++        
+         for ll in pyro.plate("lineages2", self.L):
+             with pyro.plate(f"data_{ll}", self.N):
+-                obs = pyro.sample(f"obs_{ll}", distr.Bernoulli(logits=logits_sigma[:,ll], validate_args=False), 
+-                    obs=self.y[:,ll] / carrying_capacity[ll])
++                # obs = pyro.sample(f"obs_{ll}", distr.Bernoulli(logits=logits_sigma[:,ll], validate_args=False), 
++                #     obs=self.y[:,ll] / carrying_capacity[ll])
++                obs = pyro.sample(f"obs_{ll}", 
++                      distr.NegativeBinomial(total_count=sigma[:,ll], \
++                      logits=logits[:,ll]), obs=self.y_log[:,ll])
+ 
+ 
+     def model_exp(self):
+@@ -121,11 +128,14 @@ class Regression():
+         # for each lineage, the pop grows as r*(t-t1), 
+         # where t1 is the time the population is first observed
+         mean = (self.x.expand(self.N, self.L) - t1).clamp(0) * rate
++        
++        # print("EXP")
++        # print(rate)
+ 
+         for ll in pyro.plate("lineages3", self.L):
+             with pyro.plate(f"data_{ll}", self.N):
+                 obs = pyro.sample(f"obs_{ll}", distr.Normal(mean[:,ll], sigma[:,ll]), 
+-                    obs=torch.log(self.y[:,ll]))
++                    obs=torch.log(self.y_exp[:,ll]))
+ 
+ 
+     def guide(self):
+@@ -311,9 +321,13 @@ class Regression():
+             torch.log(params["carr_capac"] -1)
+ 
+         sigma = params["sigma"] # .unsqueeze(1)
++        logits_sigma = logits + sigma
++
++        # return torch.sum(distr.Bernoulli(logits=logits + sigma, \
++        #     validate_args=False).log_prob(self.y / params["carr_capac"]), dim=0).detach().numpy()
++        return torch.sum(distr.NegativeBinomial(total_count=sigma, \
++              logits=logits).log_prob(self.y_log), dim=0).detach().numpy()
+ 
+-        return torch.sum(distr.Bernoulli(logits=logits + sigma, \
+-            validate_args=False).log_prob(self.y / params["carr_capac"]), dim=0).detach().numpy()
+ 
+ 
+     def _compute_exp_ll(self):
+@@ -323,4 +337,4 @@ class Regression():
+         mean = (self.x.expand(self.N, self.L) - params["init_time"]).clamp(0) * rate
+         sigma = params["sigma"] # .unsqueeze(1)
+ 
+-        return torch.sum(distr.Normal(mean, sigma).log_prob(torch.log(self.y)), dim=0).detach().numpy()
++        return torch.sum(distr.Normal(mean, sigma).log_prob(torch.log(self.y_exp)), dim=0).detach().numpy()
