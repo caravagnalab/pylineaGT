@@ -6,7 +6,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name = "pylineaGT",
-    version = "0.2.0",
+    version = "0.2.1",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",
@@ -16,11 +16,11 @@ setup(
     packages=["pylineaGT"],
     python_requires = ">=3.6",
     install_requires = [
+        "numpy==1.*",
         "pandas==1.3.3",
         "pyro-api==0.1.2",
         "pyro-ppl==1.8.0",
         "torch==1.11.0",
-        "numpy==1.*",
         "scikit-learn==1.0.2",
     ]
 )
