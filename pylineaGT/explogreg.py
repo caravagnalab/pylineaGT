@@ -324,3 +324,20 @@ class Regression():
         sigma = params["sigma"] # .unsqueeze(1)
 
         return torch.sum(distr.Normal(mean, sigma).log_prob(torch.log(self.y)), dim=0).detach().numpy()
+
+
+    def compute_bic(self): # returns a np.float64 
+        nll = - self.compute_log_likelihood()
+        return 2*nll + self._n_parameters() * torch.log(torch.tensor(self.N)).numpy()
+
+
+    def _n_parameters(self):
+        ''' Return the number of free parameters in the model. '''
+
+        params = self.get_learned_params()
+        n_params = params["fitness"].size + params["sigma"].size + params["init_time"].size
+
+        if self.log:
+            n_params += params["carr_capac"].size
+        
+        return n_params

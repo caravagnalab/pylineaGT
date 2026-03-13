@@ -6,7 +6,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name = "pylineagt",
-    version = "1.0.0",
+    version = "1.0.1",
     author = "Elena Buscaroli",
     author_email = "ele.buscaroli@gmail.com",
     description = "A Pyro model to perform lineage inference from Gene Therapy assays",
